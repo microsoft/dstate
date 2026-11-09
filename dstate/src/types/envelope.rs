@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::types::node::{NodeId, Generation};
+use crate::types::node::{Generation, NodeId};
 
 /// The local node's authoritative copy of a distributed state.
 #[derive(Debug, Clone)]

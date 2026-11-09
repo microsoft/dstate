@@ -79,7 +79,6 @@ pub(crate) enum SyncAction {
 /// | StateShard actor (startup / config) | `strategy()` | To read the underlying `SyncStrategy` |
 /// | StateShard actor (timer setup) | `should_periodic_sync()` / `periodic_interval()` | To decide whether to arm a periodic full-sync timer |
 pub(crate) struct SyncLogic {
-    state_name: String,
     strategy: SyncStrategy,
     /// Whether this state uses deltas (DeltaDistributedState) or
     /// only full snapshots (DistributedState).
@@ -87,9 +86,8 @@ pub(crate) struct SyncLogic {
 }
 
 impl SyncLogic {
-    pub(crate) fn new(state_name: String, strategy: SyncStrategy, supports_delta: bool) -> Self {
+    pub(crate) fn new(strategy: SyncStrategy, supports_delta: bool) -> Self {
         Self {
-            state_name,
             strategy,
             supports_delta,
         }
@@ -111,10 +109,6 @@ impl SyncLogic {
 
     pub(crate) fn strategy(&self) -> &SyncStrategy {
         &self.strategy
-    }
-
-    pub(crate) fn state_name(&self) -> &str {
-        &self.state_name
     }
 
     pub(crate) fn should_periodic_sync(&self) -> bool {
@@ -158,69 +152,96 @@ mod tests {
     /// SE-01: Immediate urgency with delta support broadcasts a delta.
     #[test]
     fn immediate_urgency_broadcasts_delta() {
-        let logic = SyncLogic::new("test".into(), active_push_strategy(), true);
-        assert_eq!(logic.resolve_action(SyncUrgency::Immediate), SyncAction::BroadcastDelta);
+        let logic = SyncLogic::new(active_push_strategy(), true);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Immediate),
+            SyncAction::BroadcastDelta
+        );
     }
 
     /// SE-01b: Immediate urgency without delta support broadcasts a snapshot.
     #[test]
     fn immediate_urgency_broadcasts_snapshot_for_simple() {
-        let logic = SyncLogic::new("test".into(), active_push_strategy(), false);
-        assert_eq!(logic.resolve_action(SyncUrgency::Immediate), SyncAction::BroadcastSnapshot);
+        let logic = SyncLogic::new(active_push_strategy(), false);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Immediate),
+            SyncAction::BroadcastSnapshot
+        );
     }
 
     /// SE-02: Default urgency with ActivePush broadcasts delta (or snapshot).
     #[test]
     fn default_urgency_active_push() {
-        let delta = SyncLogic::new("test".into(), active_push_strategy(), true);
-        assert_eq!(delta.resolve_action(SyncUrgency::Default), SyncAction::BroadcastDelta);
+        let delta = SyncLogic::new(active_push_strategy(), true);
+        assert_eq!(
+            delta.resolve_action(SyncUrgency::Default),
+            SyncAction::BroadcastDelta
+        );
 
-        let simple = SyncLogic::new("test".into(), active_push_strategy(), false);
-        assert_eq!(simple.resolve_action(SyncUrgency::Default), SyncAction::BroadcastSnapshot);
+        let simple = SyncLogic::new(active_push_strategy(), false);
+        assert_eq!(
+            simple.resolve_action(SyncUrgency::Default),
+            SyncAction::BroadcastSnapshot
+        );
     }
 
     /// SE-03: Default urgency with ActiveFeedLazyPull notifies change feed.
     #[test]
     fn default_urgency_feed_lazy_pull() {
-        let logic = SyncLogic::new("test".into(), feed_lazy_pull_strategy(), true);
-        assert_eq!(logic.resolve_action(SyncUrgency::Default), SyncAction::NotifyChangeFeed);
+        let logic = SyncLogic::new(feed_lazy_pull_strategy(), true);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Default),
+            SyncAction::NotifyChangeFeed
+        );
     }
 
     /// SE-04: Default urgency with no push mode suppresses.
     #[test]
     fn default_urgency_no_push_mode() {
-        let logic = SyncLogic::new("test".into(), no_push_strategy(), true);
-        assert_eq!(logic.resolve_action(SyncUrgency::Default), SyncAction::Suppress);
+        let logic = SyncLogic::new(no_push_strategy(), true);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Default),
+            SyncAction::Suppress
+        );
     }
 
     /// SE-05: Delayed urgency schedules a delayed send.
     #[test]
     fn delayed_urgency() {
-        let logic = SyncLogic::new("test".into(), active_push_strategy(), true);
+        let logic = SyncLogic::new(active_push_strategy(), true);
         let delay = Duration::from_secs(5);
-        assert_eq!(logic.resolve_action(SyncUrgency::Delayed(delay)), SyncAction::ScheduleDelayed(delay));
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Delayed(delay)),
+            SyncAction::ScheduleDelayed(delay)
+        );
     }
 
     /// Suppress urgency always suppresses regardless of strategy.
     #[test]
     fn suppress_urgency() {
-        let logic = SyncLogic::new("test".into(), active_push_strategy(), true);
-        assert_eq!(logic.resolve_action(SyncUrgency::Suppress), SyncAction::Suppress);
+        let logic = SyncLogic::new(active_push_strategy(), true);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Suppress),
+            SyncAction::Suppress
+        );
     }
 
     /// Immediate overrides feed mode — even with ActiveFeedLazyPull,
     /// Immediate urgency broadcasts a delta.
     #[test]
     fn immediate_overrides_feed_mode() {
-        let logic = SyncLogic::new("test".into(), feed_lazy_pull_strategy(), true);
-        assert_eq!(logic.resolve_action(SyncUrgency::Immediate), SyncAction::BroadcastDelta);
+        let logic = SyncLogic::new(feed_lazy_pull_strategy(), true);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Immediate),
+            SyncAction::BroadcastDelta
+        );
     }
 
     /// Periodic sync is reported as configured when set.
     #[test]
     fn periodic_sync_configured() {
         let strategy = SyncStrategy::feed_with_periodic_sync(Duration::from_secs(300));
-        let logic = SyncLogic::new("test".into(), strategy, true);
+        let logic = SyncLogic::new(strategy, true);
         assert!(logic.should_periodic_sync());
         assert_eq!(logic.periodic_interval(), Some(Duration::from_secs(300)));
     }
@@ -228,7 +249,7 @@ mod tests {
     /// Periodic sync is absent when not configured.
     #[test]
     fn periodic_sync_not_configured() {
-        let logic = SyncLogic::new("test".into(), active_push_strategy(), true);
+        let logic = SyncLogic::new(active_push_strategy(), true);
         assert!(!logic.should_periodic_sync());
         assert_eq!(logic.periodic_interval(), None);
     }
@@ -237,33 +258,45 @@ mod tests {
 
     #[test]
     fn active_push_mutation_produces_broadcast() {
-        let logic = SyncLogic::new("counters".into(), active_push_strategy(), true);
-        assert_eq!(logic.resolve_action(SyncUrgency::Default), SyncAction::BroadcastDelta);
+        let logic = SyncLogic::new(active_push_strategy(), true);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Default),
+            SyncAction::BroadcastDelta
+        );
 
-        let simple = SyncLogic::new("counters".into(), active_push_strategy(), false);
-        assert_eq!(simple.resolve_action(SyncUrgency::Default), SyncAction::BroadcastSnapshot);
+        let simple = SyncLogic::new(active_push_strategy(), false);
+        assert_eq!(
+            simple.resolve_action(SyncUrgency::Default),
+            SyncAction::BroadcastSnapshot
+        );
     }
 
     // ── SYNC-04: Feed mode mutation produces notify ─────────────
 
     #[test]
     fn feed_mode_mutation_produces_notify() {
-        let logic = SyncLogic::new("sessions".into(), feed_lazy_pull_strategy(), true);
-        assert_eq!(logic.resolve_action(SyncUrgency::Default), SyncAction::NotifyChangeFeed);
+        let logic = SyncLogic::new(feed_lazy_pull_strategy(), true);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Default),
+            SyncAction::NotifyChangeFeed
+        );
 
         // Also verify for non-delta state — feed mode still notifies.
-        let simple = SyncLogic::new("sessions".into(), feed_lazy_pull_strategy(), false);
-        assert_eq!(simple.resolve_action(SyncUrgency::Default), SyncAction::NotifyChangeFeed);
+        let simple = SyncLogic::new(feed_lazy_pull_strategy(), false);
+        assert_eq!(
+            simple.resolve_action(SyncUrgency::Default),
+            SyncAction::NotifyChangeFeed
+        );
     }
 
     // ── SYNC-07: Fresh view, pull_on_query flag ─────────────────
 
     #[test]
     fn fresh_view_no_pull() {
-        let with_pull = SyncLogic::new("test".into(), feed_lazy_pull_strategy(), true);
+        let with_pull = SyncLogic::new(feed_lazy_pull_strategy(), true);
         assert!(with_pull.strategy().pull_on_query);
 
-        let without_pull = SyncLogic::new("test".into(), active_push_strategy(), true);
+        let without_pull = SyncLogic::new(active_push_strategy(), true);
         assert!(!without_pull.strategy().pull_on_query);
     }
 
@@ -291,10 +324,16 @@ mod tests {
 
     #[test]
     fn immediate_overrides_any_strategy() {
-        let logic = SyncLogic::new("test".into(), no_push_strategy(), true);
+        let logic = SyncLogic::new(no_push_strategy(), true);
         // Default urgency with no push_mode → Suppress.
-        assert_eq!(logic.resolve_action(SyncUrgency::Default), SyncAction::Suppress);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Default),
+            SyncAction::Suppress
+        );
         // But Immediate urgency always broadcasts, regardless of push_mode.
-        assert_eq!(logic.resolve_action(SyncUrgency::Immediate), SyncAction::BroadcastDelta);
+        assert_eq!(
+            logic.resolve_action(SyncUrgency::Immediate),
+            SyncAction::BroadcastDelta
+        );
     }
 }

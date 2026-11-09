@@ -23,14 +23,16 @@ impl DistributedState for TestState {
     const STORAGE_VERSION: u32 = 1;
 
     fn serialize_state(&self) -> Vec<u8> {
-        bincode::serialize(self).expect("TestState serialization should not fail")
+        bincode::serde::encode_to_vec(self, bincode::config::legacy())
+            .expect("TestState serialization should not fail")
     }
 
     fn deserialize_state(bytes: &[u8], wire_version: u32) -> Result<Self, DeserializeError> {
         if wire_version != Self::WIRE_VERSION {
             return Err(DeserializeError::unknown_version(wire_version));
         }
-        bincode::deserialize(bytes)
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
             .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 }
@@ -113,7 +115,10 @@ impl DeltaDistributedState for TestDeltaState {
     fn apply_delta(view: &Self::View, delta: &Self::ViewDelta) -> Self::View {
         TestDeltaView {
             counter: (view.counter as i64 + delta.counter_delta) as u64,
-            label: delta.new_label.clone().unwrap_or_else(|| view.label.clone()),
+            label: delta
+                .new_label
+                .clone()
+                .unwrap_or_else(|| view.label.clone()),
         }
     }
 
@@ -126,19 +131,22 @@ impl DeltaDistributedState for TestDeltaState {
     }
 
     fn serialize_view(view: &Self::View) -> Vec<u8> {
-        bincode::serialize(view).expect("view serialization should not fail")
+        bincode::serde::encode_to_vec(view, bincode::config::legacy())
+            .expect("view serialization should not fail")
     }
 
     fn deserialize_view(bytes: &[u8], wire_version: u32) -> Result<Self::View, DeserializeError> {
         if wire_version != Self::WIRE_VERSION {
             return Err(DeserializeError::unknown_version(wire_version));
         }
-        bincode::deserialize(bytes)
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
             .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 
     fn serialize_delta(delta: &Self::ViewDelta) -> Vec<u8> {
-        bincode::serialize(delta).expect("delta serialization should not fail")
+        bincode::serde::encode_to_vec(delta, bincode::config::legacy())
+            .expect("delta serialization should not fail")
     }
 
     fn deserialize_delta(
@@ -148,12 +156,14 @@ impl DeltaDistributedState for TestDeltaState {
         if wire_version != Self::WIRE_VERSION {
             return Err(DeserializeError::unknown_version(wire_version));
         }
-        bincode::deserialize(bytes)
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
             .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 
     fn serialize_state(state: &Self::State) -> Vec<u8> {
-        bincode::serialize(state).expect("state serialization should not fail")
+        bincode::serde::encode_to_vec(state, bincode::config::legacy())
+            .expect("state serialization should not fail")
     }
 
     fn deserialize_state(
@@ -163,7 +173,8 @@ impl DeltaDistributedState for TestDeltaState {
         if storage_version != Self::STORAGE_VERSION {
             return Err(DeserializeError::unknown_version(storage_version));
         }
-        bincode::deserialize(bytes)
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
             .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 }

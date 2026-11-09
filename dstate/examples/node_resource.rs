@@ -198,9 +198,7 @@ impl DeltaDistributedState for NodeResource {
         NodeResourceView {
             cpu_usage_pct: delta.cpu_usage_pct.unwrap_or(view.cpu_usage_pct),
             memory_used_bytes: delta.memory_used_bytes.unwrap_or(view.memory_used_bytes),
-            memory_total_bytes: delta
-                .memory_total_bytes
-                .unwrap_or(view.memory_total_bytes),
+            memory_total_bytes: delta.memory_total_bytes.unwrap_or(view.memory_total_bytes),
             disk_used_bytes: delta.disk_used_bytes.unwrap_or(view.disk_used_bytes),
             disk_total_bytes: delta.disk_total_bytes.unwrap_or(view.disk_total_bytes),
         }
@@ -235,19 +233,22 @@ impl DeltaDistributedState for NodeResource {
     }
 
     fn serialize_view(view: &Self::View) -> Vec<u8> {
-        bincode::serialize(view).expect("view serialization should not fail")
+        bincode::serde::encode_to_vec(view, bincode::config::legacy())
+            .expect("view serialization should not fail")
     }
 
     fn deserialize_view(bytes: &[u8], wire_version: u32) -> Result<Self::View, DeserializeError> {
         if wire_version != Self::WIRE_VERSION {
             return Err(DeserializeError::unknown_version(wire_version));
         }
-        bincode::deserialize(bytes)
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
             .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 
     fn serialize_delta(delta: &Self::ViewDelta) -> Vec<u8> {
-        bincode::serialize(delta).expect("delta serialization should not fail")
+        bincode::serde::encode_to_vec(delta, bincode::config::legacy())
+            .expect("delta serialization should not fail")
     }
 
     fn deserialize_delta(
@@ -257,12 +258,14 @@ impl DeltaDistributedState for NodeResource {
         if wire_version != Self::WIRE_VERSION {
             return Err(DeserializeError::unknown_version(wire_version));
         }
-        bincode::deserialize(bytes)
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
             .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 
     fn serialize_state(state: &Self::State) -> Vec<u8> {
-        bincode::serialize(state).expect("state serialization should not fail")
+        bincode::serde::encode_to_vec(state, bincode::config::legacy())
+            .expect("state serialization should not fail")
     }
 
     fn deserialize_state(
@@ -272,7 +275,8 @@ impl DeltaDistributedState for NodeResource {
         if storage_version != Self::STORAGE_VERSION {
             return Err(DeserializeError::unknown_version(storage_version));
         }
-        bincode::deserialize(bytes)
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
             .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 }
@@ -361,7 +365,9 @@ mod tests {
             cpu_usage_pct: 50.5,
             ..Default::default()
         };
-        let change = NodeResourceChange::CpuSample { new_cpu_usage_pct: 50.5 };
+        let change = NodeResourceChange::CpuSample {
+            new_cpu_usage_pct: 50.5,
+        };
         assert!(matches!(
             NodeResource::sync_urgency(&old, &new, &change),
             SyncUrgency::Suppress

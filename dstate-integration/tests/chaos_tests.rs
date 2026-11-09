@@ -9,9 +9,7 @@ use std::time::Duration;
 use dstate::engine::DistributedStateEngine;
 use dstate::test_support::test_clock::TestClock;
 use dstate::test_support::test_state::TestState;
-use dstate::{
-    DeserializeError, DistributedState, NodeId, StateConfig, SyncStrategy, SyncUrgency,
-};
+use dstate::{DeserializeError, DistributedState, NodeId, StateConfig, SyncStrategy, SyncUrgency};
 use dstate_integration::cluster::MockCluster;
 use dstate_integration::interceptor::*;
 
@@ -129,12 +127,14 @@ fn chaos_03_node_crash_rejoin() {
             active_push_config(),
             TestState::WIRE_VERSION,
             clock.clone(),
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, v| {
                 if v != TestState::WIRE_VERSION {
                     return Err(DeserializeError::unknown_version(v));
                 }
-                bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
+                    .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
         );
@@ -175,12 +175,14 @@ fn chaos_03_node_crash_rejoin() {
         active_push_config(),
         TestState::WIRE_VERSION,
         clock.clone(),
-        |v| bincode::serialize(v).unwrap(),
+        |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
         |b, v| {
             if v != TestState::WIRE_VERSION {
                 return Err(DeserializeError::unknown_version(v));
             }
-            bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+            bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                .map(|(value, _)| value)
+                .map_err(|e| DeserializeError::Malformed(e.to_string()))
         },
         None,
     );
@@ -211,12 +213,14 @@ fn chaos_04_rapid_join_leave() {
             active_push_config(),
             TestState::WIRE_VERSION,
             clock.clone(),
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, v| {
                 if v != TestState::WIRE_VERSION {
                     return Err(DeserializeError::unknown_version(v));
                 }
-                bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
+                    .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
         );
@@ -228,17 +232,22 @@ fn chaos_04_rapid_join_leave() {
         let engine = DistributedStateEngine::new(
             TestState::name(),
             node(2),
-            TestState { counter: cycle + 1, label: format!("cycle-{cycle}") },
+            TestState {
+                counter: cycle + 1,
+                label: format!("cycle-{cycle}"),
+            },
             |s| s.clone(),
             active_push_config(),
             TestState::WIRE_VERSION,
             clock.clone(),
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, v| {
                 if v != TestState::WIRE_VERSION {
                     return Err(DeserializeError::unknown_version(v));
                 }
-                bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
+                    .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
         );
@@ -275,13 +284,8 @@ fn chaos_05_split_brain_partition_heal() {
     let mut cluster = MockCluster::with_test_state(5, active_push_config());
 
     // Partition: {0,1} | {2,3,4}
-    let partition = Partition::symmetric(
-        [node(0), node(1)],
-        [node(2), node(3), node(4)],
-    );
-    cluster
-        .transport_mut()
-        .add_interceptor(Box::new(partition));
+    let partition = Partition::symmetric([node(0), node(1)], [node(2), node(3), node(4)]);
+    cluster.transport_mut().add_interceptor(Box::new(partition));
 
     // Mutate in partition A
     cluster.mutate(
@@ -334,11 +338,13 @@ fn chaos_05_split_brain_partition_heal() {
     for i in 0..5 {
         let snap = cluster.engine(node(i)).snapshot();
         assert_eq!(
-            snap[&node(0)].value.counter, 101,
+            snap[&node(0)].value.counter,
+            101,
             "node {i} should see node 0's latest"
         );
         assert_eq!(
-            snap[&node(2)].value.counter, 201,
+            snap[&node(2)].value.counter,
+            201,
             "node {i} should see node 2's latest"
         );
     }
@@ -368,12 +374,14 @@ fn chaos_06_generation_ordering_independent_of_clock() {
             active_push_config(),
             TestState::WIRE_VERSION,
             clock.clone(),
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, v| {
                 if v != TestState::WIRE_VERSION {
                     return Err(DeserializeError::unknown_version(v));
                 }
-                bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
+                    .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
         );

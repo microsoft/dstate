@@ -45,12 +45,14 @@ fn make_multi_version_engine(
         config,
         wire_version,
         clock,
-        |v| bincode::serialize(v).unwrap(),
+        |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
         move |b, v| {
             if !accepted_versions.contains(&v) {
                 return Err(DeserializeError::unknown_version(v));
             }
-            bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+            bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                .map(|(value, _)| value)
+                .map_err(|e| DeserializeError::Malformed(e.to_string()))
         },
         None,
     )
@@ -103,8 +105,8 @@ fn upgrade_01_rolling_phase1() {
             node(upgrade_idx),
             config.clone(),
             clock.clone(),
-            1,           // still send V1
-            vec![1, 2],  // can read both
+            1,          // still send V1
+            vec![1, 2], // can read both
         );
         cluster.add_node(engine, TestState::default());
 
@@ -150,13 +152,8 @@ fn upgrade_02_rolling_phase2() {
 
     // All nodes start at phase 1: read V1+V2, send V1
     for i in 0..5 {
-        let engine = make_multi_version_engine(
-            node(i),
-            config.clone(),
-            clock.clone(),
-            1,
-            vec![1, 2],
-        );
+        let engine =
+            make_multi_version_engine(node(i), config.clone(), clock.clone(), 1, vec![1, 2]);
         cluster.add_node(engine, TestState::default());
     }
 
@@ -168,8 +165,8 @@ fn upgrade_02_rolling_phase2() {
             node(upgrade_idx),
             config.clone(),
             clock.clone(),
-            2,           // now send V2
-            vec![1, 2],  // still read both
+            2,          // now send V2
+            vec![1, 2], // still read both
         );
         cluster.add_node(engine, TestState::default());
 
@@ -189,10 +186,7 @@ fn upgrade_02_rolling_phase2() {
                 continue;
             }
             let snap = cluster.engine(observer_id.clone()).snapshot();
-            assert_eq!(
-                snap[&node(upgrade_idx)].value.counter,
-                200 + upgrade_idx,
-            );
+            assert_eq!(snap[&node(upgrade_idx)].value.counter, 200 + upgrade_idx,);
         }
     }
 }
@@ -211,25 +205,15 @@ fn upgrade_03_partial_rollback() {
 
     // Nodes 0,1,2 at phase 2 (send V2, read V1+V2)
     for i in 0..3 {
-        let engine = make_multi_version_engine(
-            node(i),
-            config.clone(),
-            clock.clone(),
-            2,
-            vec![1, 2],
-        );
+        let engine =
+            make_multi_version_engine(node(i), config.clone(), clock.clone(), 2, vec![1, 2]);
         cluster.add_node(engine, TestState::default());
     }
 
     // Nodes 3,4 still at phase 1 (send V1, read V1+V2)
     for i in 3..5 {
-        let engine = make_multi_version_engine(
-            node(i),
-            config.clone(),
-            clock.clone(),
-            1,
-            vec![1, 2],
-        );
+        let engine =
+            make_multi_version_engine(node(i), config.clone(), clock.clone(), 1, vec![1, 2]);
         cluster.add_node(engine, TestState::default());
     }
 
@@ -253,8 +237,8 @@ fn upgrade_03_partial_rollback() {
         node(2),
         config.clone(),
         clock.clone(),
-        1,           // rolled back to V1
-        vec![1, 2],  // still reads both
+        1,          // rolled back to V1
+        vec![1, 2], // still reads both
     );
     cluster.add_node(engine, TestState::default());
 
@@ -302,25 +286,15 @@ fn upgrade_04_mixed_version_steady_state() {
 
     // Nodes 0,1 send V1 (read V1+V2)
     for i in 0..2 {
-        let engine = make_multi_version_engine(
-            node(i),
-            config.clone(),
-            clock.clone(),
-            1,
-            vec![1, 2],
-        );
+        let engine =
+            make_multi_version_engine(node(i), config.clone(), clock.clone(), 1, vec![1, 2]);
         cluster.add_node(engine, TestState::default());
     }
 
     // Nodes 2,3,4 send V2 (read V1+V2)
     for i in 2..5 {
-        let engine = make_multi_version_engine(
-            node(i),
-            config.clone(),
-            clock.clone(),
-            2,
-            vec![1, 2],
-        );
+        let engine =
+            make_multi_version_engine(node(i), config.clone(), clock.clone(), 2, vec![1, 2]);
         cluster.add_node(engine, TestState::default());
     }
 

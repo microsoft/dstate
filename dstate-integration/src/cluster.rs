@@ -105,7 +105,9 @@ where
         let mut all_actions: Vec<(NodeId, Vec<EngineAction>)> = Vec::new();
         for existing_id in &existing_ids {
             let node = self.nodes.get_mut(existing_id).unwrap();
-            let actions = node.engine.on_node_joined(new_id.clone(), default_view.clone());
+            let actions = node
+                .engine
+                .on_node_joined(new_id.clone(), default_view.clone());
             if !actions.is_empty() {
                 all_actions.push((existing_id.clone(), actions));
             }
@@ -154,7 +156,7 @@ where
     /// In-flight messages from this node may still be delivered.
     pub fn remove_node(&mut self, node_id: NodeId) {
         self.nodes.remove(&node_id);
-        for (_, node) in &mut self.nodes {
+        for node in self.nodes.values_mut() {
             node.engine.on_node_left(node_id.clone());
         }
     }
@@ -164,7 +166,7 @@ where
     pub fn remove_node_hard(&mut self, node_id: NodeId) {
         self.nodes.remove(&node_id);
         self.transport.drop_in_flight_for(node_id.clone());
-        for (_, node) in &mut self.nodes {
+        for node in self.nodes.values_mut() {
             node.engine.on_node_left(node_id.clone());
         }
     }
@@ -224,8 +226,11 @@ where
                     node.feed_flush_counter = 0;
                     if let Some(feed) = node.engine.flush_change_feed() {
                         let all_nodes = self.all_node_ids();
-                        self.transport
-                            .broadcast(node_id.clone(), &WireMessage::Feed(feed), &all_nodes);
+                        self.transport.broadcast(
+                            node_id.clone(),
+                            &WireMessage::Feed(feed),
+                            &all_nodes,
+                        );
                     }
                 }
             } else {
@@ -269,7 +274,7 @@ where
             return false;
         }
         // Check for pending scheduled actions
-        for (_, node) in &self.nodes {
+        for node in self.nodes.values() {
             if !node.scheduled.is_empty() {
                 return false;
             }
@@ -357,12 +362,18 @@ where
         for action in actions {
             match action {
                 EngineAction::BroadcastSync(msg) => {
-                    self.transport
-                        .broadcast(from.clone(), &WireMessage::Sync(msg.clone()), &all_nodes);
+                    self.transport.broadcast(
+                        from.clone(),
+                        &WireMessage::Sync(msg.clone()),
+                        &all_nodes,
+                    );
                 }
                 EngineAction::SendSync { target, message } => {
-                    self.transport
-                        .send(from.clone(), target.clone(), &WireMessage::Sync(message.clone()));
+                    self.transport.send(
+                        from.clone(),
+                        target.clone(),
+                        &WireMessage::Sync(message.clone()),
+                    );
                 }
                 EngineAction::ScheduleDelayed { delay, message } => {
                     let delay_ms = delay.as_millis() as u64;
@@ -406,12 +417,13 @@ impl MockCluster<TestState, TestState> {
                 config.clone(),
                 TestState::WIRE_VERSION,
                 clock.clone(),
-                |v| bincode::serialize(v).unwrap(),
+                |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
                 |b, v| {
                     if v != TestState::WIRE_VERSION {
                         return Err(DeserializeError::unknown_version(v));
                     }
-                    bincode::deserialize(b)
+                    bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                        .map(|(value, _)| value)
                         .map_err(|e| DeserializeError::Malformed(e.to_string()))
                 },
                 None,
@@ -465,7 +477,10 @@ mod tests {
 
         // All nodes should see node 0's update
         for id in 0..3 {
-            let view = cluster.engine(NodeId(id.to_string())).get_view(&NodeId("0".to_string())).unwrap();
+            let view = cluster
+                .engine(NodeId(id.to_string()))
+                .get_view(&NodeId("0".to_string()))
+                .unwrap();
             assert_eq!(view.value.counter, 42);
             assert_eq!(view.value.label, "hello");
         }
@@ -521,7 +536,10 @@ mod tests {
         );
         cluster.settle();
 
-        let view = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+        let view = cluster
+            .engine(NodeId("1".to_string()))
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(view.value.counter, 99);
         // Node 2 is gone, so no assertion there
     }
@@ -536,7 +554,10 @@ mod tests {
         // Partition: node 0 cannot reach node 2 (symmetric)
         cluster
             .transport_mut()
-            .add_interceptor(Box::new(Partition::symmetric([NodeId("0".to_string())], [NodeId("2".to_string())])));
+            .add_interceptor(Box::new(Partition::symmetric(
+                [NodeId("0".to_string())],
+                [NodeId("2".to_string())],
+            )));
 
         // Node 0 mutates
         cluster.mutate(
@@ -548,11 +569,17 @@ mod tests {
         cluster.settle();
 
         // Node 1 should see the update (not partitioned)
-        let v1 = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+        let v1 = cluster
+            .engine(NodeId("1".to_string()))
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(v1.value.counter, 77);
 
         // Node 2 should NOT see the update (partitioned from node 0)
-        let v2 = cluster.engine(NodeId("2".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+        let v2 = cluster
+            .engine(NodeId("2".to_string()))
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(v2.value.counter, 0); // still default
     }
 
@@ -566,7 +593,10 @@ mod tests {
         // Partition
         cluster
             .transport_mut()
-            .add_interceptor(Box::new(Partition::symmetric([NodeId("0".to_string())], [NodeId("1".to_string())])));
+            .add_interceptor(Box::new(Partition::symmetric(
+                [NodeId("0".to_string())],
+                [NodeId("1".to_string())],
+            )));
 
         // Mutate during partition
         cluster.mutate(
@@ -578,7 +608,10 @@ mod tests {
         cluster.settle();
 
         // Node 1 doesn't see it
-        let v = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+        let v = cluster
+            .engine(NodeId("1".to_string()))
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(v.value.counter, 0);
 
         // Heal partition
@@ -594,7 +627,10 @@ mod tests {
         cluster.settle();
 
         // Node 1 should now see the latest value
-        let v = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+        let v = cluster
+            .engine(NodeId("1".to_string()))
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(v.value.counter, 200);
     }
 
@@ -611,7 +647,7 @@ mod tests {
 
         let ticks = cluster.settle();
         // With ActivePush and 2 nodes, it should settle quickly
-        assert!(ticks >= 1 && ticks <= 10);
+        assert!((1..=10).contains(&ticks));
     }
 
     #[test]
@@ -636,7 +672,10 @@ mod tests {
         cluster.settle();
 
         // Node 1 should have the correct value despite receiving duplicates
-        let v = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+        let v = cluster
+            .engine(NodeId("1".to_string()))
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(v.value.counter, 42);
     }
 
@@ -651,7 +690,10 @@ mod tests {
         );
         // Single node: no peers, should settle with minimal ticks
         let ticks = cluster.settle();
-        assert!(ticks <= 20, "single node should settle quickly, took {ticks}");
+        assert!(
+            ticks <= 20,
+            "single node should settle quickly, took {ticks}"
+        );
     }
 
     #[test]

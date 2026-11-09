@@ -34,14 +34,18 @@ where
     for action in actions {
         match action {
             EngineAction::BroadcastSync(msg) => {
-                cluster
-                    .transport_mut()
-                    .broadcast(from.clone(), &WireMessage::Sync(msg.clone()), &all_nodes);
+                cluster.transport_mut().broadcast(
+                    from.clone(),
+                    &WireMessage::Sync(msg.clone()),
+                    &all_nodes,
+                );
             }
             EngineAction::SendSync { target, message } => {
-                cluster
-                    .transport_mut()
-                    .send(from.clone(), target.clone(), &WireMessage::Sync(message.clone()));
+                cluster.transport_mut().send(
+                    from.clone(),
+                    target.clone(),
+                    &WireMessage::Sync(message.clone()),
+                );
             }
             EngineAction::ScheduleDelayed { .. } => {
                 // Intentionally skipped — ScheduleDelayed must go through
@@ -83,12 +87,12 @@ fn make_delta_engine(
         TestDeltaState::name(),
         node_id,
         TestDeltaStateInner::default(),
-        |s| TestDeltaState::project_view(s),
+        TestDeltaState::project_view,
         config,
         TestDeltaState::WIRE_VERSION,
         clock,
-        |v| TestDeltaState::serialize_view(v),
-        |b, wv| TestDeltaState::deserialize_view(b, wv),
+        TestDeltaState::serialize_view,
+        TestDeltaState::deserialize_view,
         Some(Box::new(|delta_bytes, wire_version, view| {
             let delta = TestDeltaState::deserialize_delta(delta_bytes, wire_version)?;
             Ok(TestDeltaState::apply_delta(view, &delta))
@@ -107,7 +111,13 @@ fn make_delta_cluster(
 
     for i in 0..n {
         let engine = make_delta_engine(NodeId(i.to_string()), config.clone(), clock.clone());
-        cluster.add_node(engine, TestDeltaView { counter: 0, label: String::new() });
+        cluster.add_node(
+            engine,
+            TestDeltaView {
+                counter: 0,
+                label: String::new(),
+            },
+        );
     }
 
     cluster
@@ -133,9 +143,15 @@ fn int_01_basic_mutation_propagates() {
 
     // All 3 nodes should see node 0's update
     for nid in cluster.all_node_ids() {
-        let view = cluster.engine(nid.clone()).get_view(&NodeId("0".to_string())).unwrap();
+        let view = cluster
+            .engine(nid.clone())
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(view.value.counter, 42, "node {nid} should see counter=42");
-        assert_eq!(view.value.label, "hello", "node {nid} should see label=hello");
+        assert_eq!(
+            view.value.label, "hello",
+            "node {nid} should see label=hello"
+        );
     }
 }
 
@@ -146,22 +162,24 @@ fn int_02_delta_projection_round_trip() {
     let mut cluster = make_delta_cluster(3, active_push_config());
 
     // Mutate node 0 with a delta change
-    let result = cluster.engine_mut(NodeId("0".to_string())).mutate_with_delta(
-        |s| {
-            s.counter += 10;
-            s.label = "delta".into();
-            s.internal_accumulator += 3.14;
-            TestDeltaChange {
-                counter_delta: 10,
-                new_label: Some("delta".into()),
-                accumulator_delta: 3.14,
-            }
-        },
-        |s| TestDeltaState::project_view(s),
-        |c| TestDeltaState::project_delta(c),
-        SyncUrgency::Default,
-        |vd| TestDeltaState::serialize_delta(vd),
-    );
+    let result = cluster
+        .engine_mut(NodeId("0".to_string()))
+        .mutate_with_delta(
+            |s| {
+                s.counter += 10;
+                s.label = "delta".into();
+                s.internal_accumulator += std::f64::consts::PI;
+                TestDeltaChange {
+                    counter_delta: 10,
+                    new_label: Some("delta".into()),
+                    accumulator_delta: std::f64::consts::PI,
+                }
+            },
+            TestDeltaState::project_view,
+            TestDeltaState::project_delta,
+            SyncUrgency::Default,
+            TestDeltaState::serialize_delta,
+        );
 
     // The local view should reflect the mutation
     assert_eq!(result.view.counter, 10);
@@ -175,9 +193,15 @@ fn int_02_delta_projection_round_trip() {
 
     // All peers should see the delta-applied view
     for nid in cluster.all_node_ids() {
-        let view = cluster.engine(nid.clone()).get_view(&NodeId("0".to_string())).unwrap();
+        let view = cluster
+            .engine(nid.clone())
+            .get_view(&NodeId("0".to_string()))
+            .unwrap();
         assert_eq!(view.value.counter, 10, "node {nid} should see counter=10");
-        assert_eq!(view.value.label, "delta", "node {nid} should see label=delta");
+        assert_eq!(
+            view.value.label, "delta",
+            "node {nid} should see label=delta"
+        );
     }
 }
 
@@ -206,12 +230,18 @@ fn int_03_change_feed_batching() {
     cluster.settle();
 
     // Node 0's own view should have the latest mutation
-    let own = cluster.engine(NodeId("0".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let own = cluster
+        .engine(NodeId("0".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(own.value.counter, 5);
 
     // After settle, peers should have received the feed and pulled data
     let metrics = cluster.engine(NodeId("0".to_string())).metrics();
-    assert_eq!(metrics.total_mutations, 5, "all 5 mutations should be recorded");
+    assert_eq!(
+        metrics.total_mutations, 5,
+        "all 5 mutations should be recorded"
+    );
     // In FeedLazyPull mode, peers pull via RequestSnapshot after receiving
     // change feed notifications, so node 0 should have sent snapshots.
     assert!(
@@ -239,7 +269,9 @@ fn int_04_change_feed_deduplication() {
     }
 
     // Flush the change feed on node 0 directly to inspect it
-    let feed = cluster.engine_mut(NodeId("0".to_string())).flush_change_feed();
+    let feed = cluster
+        .engine_mut(NodeId("0".to_string()))
+        .flush_change_feed();
 
     if let Some(feed) = feed {
         // The feed should deduplicate: at most 1 notification per (state_name, source_node)
@@ -289,7 +321,9 @@ fn int_05_periodic_full_sync() {
 
     // Verify the action is a FullSnapshot broadcast
     assert!(
-        actions.iter().any(|a| matches!(a, EngineAction::BroadcastSync(..))),
+        actions
+            .iter()
+            .any(|a| matches!(a, EngineAction::BroadcastSync(..))),
         "periodic_sync should produce a BroadcastSync"
     );
 }
@@ -318,16 +352,18 @@ fn int_06_pull_on_stale_query() {
     cluster.tick_n(10);
 
     // Query on node 1 with max_staleness = 0 (demand perfect freshness)
-    let (query_result, actions) = cluster.engine(NodeId("1".to_string())).query(
-        Duration::ZERO,
-        |views| views.len(),
-    );
+    let (query_result, actions) = cluster
+        .engine(NodeId("1".to_string()))
+        .query(Duration::ZERO, |views| views.len());
 
     match query_result {
         EngineQueryResult::Stale { stale_peers, .. } => {
             assert!(!stale_peers.is_empty(), "should have stale peers");
             // With pull_on_query=true, there should be pull actions
-            assert!(!actions.is_empty(), "should have pull actions (RequestSnapshot)");
+            assert!(
+                !actions.is_empty(),
+                "should have pull actions (RequestSnapshot)"
+            );
         }
         EngineQueryResult::Fresh(_) => {
             panic!("expected Stale with ZERO max_staleness after clock advancement");
@@ -343,7 +379,9 @@ fn int_07_generation_ordering() {
 
     // First mutation
     let r1 = cluster.engine_mut(NodeId("0".to_string())).mutate(
-        |s| { s.counter = 1; },
+        |s| {
+            s.counter = 1;
+        },
         |s| s.clone(),
         SyncUrgency::Default,
     );
@@ -354,7 +392,9 @@ fn int_07_generation_ordering() {
 
     // Second mutation
     let r2 = cluster.engine_mut(NodeId("0".to_string())).mutate(
-        |s| { s.counter = 2; },
+        |s| {
+            s.counter = 2;
+        },
         |s| s.clone(),
         SyncUrgency::Default,
     );
@@ -365,13 +405,19 @@ fn int_07_generation_ordering() {
         gen2 > gen1,
         "generation should increase: {gen1:?} -> {gen2:?}"
     );
-    assert_eq!(gen2.incarnation, gen1.incarnation, "incarnation should stay stable");
+    assert_eq!(
+        gen2.incarnation, gen1.incarnation,
+        "incarnation should stay stable"
+    );
     assert!(gen2.age > gen1.age, "age should increase");
 
     cluster.settle();
 
     // Node 1 should see the latest value
-    let view = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let view = cluster
+        .engine(NodeId("1".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(view.value.counter, 2);
     assert_eq!(view.generation, gen2);
 }
@@ -397,12 +443,14 @@ fn int_08_node_join_snapshot_exchange() {
             config.clone(),
             TestState::WIRE_VERSION,
             clock.clone(),
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, v| {
                 if v != TestState::WIRE_VERSION {
                     return Err(DeserializeError::unknown_version(v));
                 }
-                bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
+                    .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
         );
@@ -432,12 +480,14 @@ fn int_08_node_join_snapshot_exchange() {
         config,
         TestState::WIRE_VERSION,
         clock.clone(),
-        |v| bincode::serialize(v).unwrap(),
+        |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
         |b, v| {
             if v != TestState::WIRE_VERSION {
                 return Err(DeserializeError::unknown_version(v));
             }
-            bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+            bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                .map(|(value, _)| value)
+                .map_err(|e| DeserializeError::Malformed(e.to_string()))
         },
         None,
     );
@@ -449,7 +499,10 @@ fn int_08_node_join_snapshot_exchange() {
 
     // Verify node 3 sees the mutations from the original 3 nodes
     for i in 0u64..3 {
-        let view = cluster.engine(NodeId("3".to_string())).get_view(&NodeId(i.to_string())).unwrap();
+        let view = cluster
+            .engine(NodeId("3".to_string()))
+            .get_view(&NodeId(i.to_string()))
+            .unwrap();
         assert_eq!(view.value.counter, (i + 1) * 10);
     }
 }
@@ -489,7 +542,10 @@ fn int_09_node_leave_view_removal() {
             "node {nid} should have 3 views after removal"
         );
         assert!(
-            cluster.engine(nid.clone()).get_view(&NodeId("3".to_string())).is_none(),
+            cluster
+                .engine(nid.clone())
+                .get_view(&NodeId("3".to_string()))
+                .is_none(),
             "node {nid} should not have a view for removed node 3"
         );
     }
@@ -507,7 +563,9 @@ fn int_10_independent_clusters() {
     // Mutate cluster A
     cluster_a.mutate(
         NodeId("0".to_string()),
-        |s| { s.counter = 100; },
+        |s| {
+            s.counter = 100;
+        },
         |s| s.clone(),
         SyncUrgency::Default,
     );
@@ -519,7 +577,7 @@ fn int_10_independent_clusters() {
             s.counter = 200;
             s.label = "delta_cluster".into();
         },
-        |s| TestDeltaState::project_view(s),
+        TestDeltaState::project_view,
         SyncUrgency::Default,
     );
 
@@ -527,11 +585,17 @@ fn int_10_independent_clusters() {
     cluster_b.settle();
 
     // Verify cluster A
-    let va = cluster_a.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let va = cluster_a
+        .engine(NodeId("1".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(va.value.counter, 100);
 
     // Verify cluster B
-    let vb = cluster_b.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let vb = cluster_b
+        .engine(NodeId("1".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(vb.value.counter, 200);
     assert_eq!(vb.value.label, "delta_cluster");
 }
@@ -544,15 +608,18 @@ fn int_11_immediate_bypasses_feed() {
 
     // Mutate with Immediate urgency — should produce broadcast even in feed mode
     let result = cluster.engine_mut(NodeId("0".to_string())).mutate(
-        |s| { s.counter = 999; },
+        |s| {
+            s.counter = 999;
+        },
         |s| s.clone(),
         SyncUrgency::Immediate,
     );
 
     // Should have a BroadcastSync action (not just a feed notification)
-    let has_broadcast = result.actions.iter().any(|a| {
-        matches!(a, EngineAction::BroadcastSync(..))
-    });
+    let has_broadcast = result
+        .actions
+        .iter()
+        .any(|a| matches!(a, EngineAction::BroadcastSync(..)));
     assert!(
         has_broadcast,
         "Immediate urgency should produce BroadcastSync even in FeedLazyPull mode"
@@ -564,7 +631,10 @@ fn int_11_immediate_bypasses_feed() {
     cluster.settle();
 
     // Verify the data propagated
-    let view = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let view = cluster
+        .engine(NodeId("1".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(view.value.counter, 999);
 }
 
@@ -575,7 +645,9 @@ fn int_12_suppress_skips_broadcast() {
     let mut cluster = MockCluster::with_test_state(2, active_push_config());
 
     let result = cluster.engine_mut(NodeId("0".to_string())).mutate(
-        |s| { s.counter = 42; },
+        |s| {
+            s.counter = 42;
+        },
         |s| s.clone(),
         SyncUrgency::Suppress,
     );
@@ -588,12 +660,18 @@ fn int_12_suppress_skips_broadcast() {
     );
 
     // Local state should still be updated
-    let view = cluster.engine(NodeId("0".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let view = cluster
+        .engine(NodeId("0".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(view.value.counter, 42);
 
     // Peer should NOT see the update (no broadcast happened)
     cluster.settle();
-    let peer_view = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let peer_view = cluster
+        .engine(NodeId("1".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(
         peer_view.value.counter, 0,
         "peer should still see default (no broadcast)"
@@ -608,15 +686,18 @@ fn int_13_delayed_schedules_timer() {
 
     // First verify the action type by calling engine_mut directly
     let result = cluster.engine_mut(NodeId("0".to_string())).mutate(
-        |s| { s.counter = 7; },
+        |s| {
+            s.counter = 7;
+        },
         |s| s.clone(),
         SyncUrgency::Delayed(Duration::from_millis(500)),
     );
 
     // Should have a ScheduleDelayed action
-    let has_delayed = result.actions.iter().any(|a| {
-        matches!(a, EngineAction::ScheduleDelayed { .. })
-    });
+    let has_delayed = result
+        .actions
+        .iter()
+        .any(|a| matches!(a, EngineAction::ScheduleDelayed { .. }));
     assert!(
         has_delayed,
         "Delayed urgency should produce ScheduleDelayed action, got {:?}",
@@ -627,19 +708,30 @@ fn int_13_delayed_schedules_timer() {
     // (The engine already has counter=7, so mutate again to test propagation.)
     cluster.mutate(
         NodeId("0".to_string()),
-        |s| { s.counter = 8; },
+        |s| {
+            s.counter = 8;
+        },
         |s| s.clone(),
         SyncUrgency::Delayed(Duration::from_millis(500)),
     );
 
     // Before enough ticks, peer should not see the update
     cluster.tick_n(2);
-    let view = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
-    assert_eq!(view.value.counter, 0, "peer should not see update before delay expires");
+    let view = cluster
+        .engine(NodeId("1".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
+    assert_eq!(
+        view.value.counter, 0,
+        "peer should not see update before delay expires"
+    );
 
     // After settling (which processes scheduled timers), peer should see the update
     cluster.settle();
-    let view = cluster.engine(NodeId("1".to_string())).get_view(&NodeId("0".to_string())).unwrap();
+    let view = cluster
+        .engine(NodeId("1".to_string()))
+        .get_view(&NodeId("0".to_string()))
+        .unwrap();
     assert_eq!(view.value.counter, 8);
 }
 
@@ -653,7 +745,9 @@ fn int_14_query_freshness_fast_path() {
     for i in 0..3 {
         cluster.mutate(
             NodeId(i.to_string()),
-            |s| { s.counter = i + 1; },
+            |s| {
+                s.counter = i + 1;
+            },
             |s| s.clone(),
             SyncUrgency::Default,
         );
@@ -661,12 +755,11 @@ fn int_14_query_freshness_fast_path() {
     cluster.settle();
 
     // Query with generous max_staleness — should return Fresh
-    let (result, actions) = cluster.engine(NodeId("0".to_string())).query(
-        Duration::from_secs(10),
-        |views| {
+    let (result, actions) = cluster
+        .engine(NodeId("0".to_string()))
+        .query(Duration::from_secs(10), |views| {
             views.values().map(|v| v.value.counter).sum::<u64>()
-        },
-    );
+        });
 
     match result {
         EngineQueryResult::Fresh(total) => {
@@ -680,10 +773,7 @@ fn int_14_query_freshness_fast_path() {
     }
 
     // No pull actions needed when fresh
-    assert!(
-        actions.is_empty(),
-        "fresh query should produce no actions"
-    );
+    assert!(actions.is_empty(), "fresh query should produce no actions");
 }
 
 // ── INT-15: Query freshness slow path ───────────────────────────
@@ -695,7 +785,9 @@ fn int_15_query_freshness_slow_path() {
 
     // Mutate node 0 but suppress propagation
     cluster.engine_mut(NodeId("0".to_string())).mutate(
-        |s| { s.counter = 50; },
+        |s| {
+            s.counter = 50;
+        },
         |s| s.clone(),
         SyncUrgency::Suppress,
     );
@@ -704,10 +796,9 @@ fn int_15_query_freshness_slow_path() {
     cluster.tick_n(20);
 
     // Query on node 1 with max_staleness = 0
-    let (result, _actions) = cluster.engine(NodeId("1".to_string())).query(
-        Duration::ZERO,
-        |views| views.len(),
-    );
+    let (result, _actions) = cluster
+        .engine(NodeId("1".to_string()))
+        .query(Duration::ZERO, |views| views.len());
 
     match result {
         EngineQueryResult::Stale { stale_peers, .. } => {

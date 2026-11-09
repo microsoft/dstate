@@ -1,5 +1,26 @@
 use dstate::{BatchedChangeFeed, ChangeNotification, Generation, NodeId, SyncMessage};
 
+#[test]
+fn preserves_bincode_one_state_bytes() {
+    use dstate::test_support::test_state::TestState;
+    use dstate::DistributedState;
+
+    let legacy_bytes = [
+        42, 0, 0, 0, 0, 0, 0, 0, // counter
+        1, 0, 0, 0, 0, 0, 0, 0, b'x', // label
+    ];
+    let state = TestState {
+        counter: 42,
+        label: "x".into(),
+    };
+    assert_eq!(state.serialize_state(), legacy_bytes);
+    assert_eq!(
+        TestState::deserialize_state(&legacy_bytes, 1).unwrap(),
+        state
+    );
+    assert!(TestState::deserialize_state(&legacy_bytes[..7], 1).is_err());
+}
+
 // WIRE-01
 #[test]
 fn full_snapshot_round_trip() {
@@ -11,8 +32,10 @@ fn full_snapshot_round_trip() {
         data: vec![1, 2, 3, 4],
     };
 
-    let bytes = bincode::serialize(&msg).expect("serialize");
-    let decoded: SyncMessage = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = bincode::serde::encode_to_vec(&msg, bincode::config::legacy()).expect("serialize");
+    let decoded: SyncMessage = bincode::serde::decode_from_slice(&bytes, bincode::config::legacy())
+        .map(|(value, _)| value)
+        .expect("deserialize");
 
     match decoded {
         SyncMessage::FullSnapshot {
@@ -43,8 +66,10 @@ fn delta_update_round_trip() {
         data: vec![10, 20, 30],
     };
 
-    let bytes = bincode::serialize(&msg).expect("serialize");
-    let decoded: SyncMessage = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = bincode::serde::encode_to_vec(&msg, bincode::config::legacy()).expect("serialize");
+    let decoded: SyncMessage = bincode::serde::decode_from_slice(&bytes, bincode::config::legacy())
+        .map(|(value, _)| value)
+        .expect("deserialize");
 
     match decoded {
         SyncMessage::DeltaUpdate {
@@ -88,22 +113,34 @@ fn batched_change_feed_round_trip() {
         ],
     };
 
-    let bytes = bincode::serialize(&feed).expect("serialize");
-    let decoded: BatchedChangeFeed = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = bincode::serde::encode_to_vec(&feed, bincode::config::legacy()).expect("serialize");
+    let decoded: BatchedChangeFeed =
+        bincode::serde::decode_from_slice(&bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
+            .expect("deserialize");
 
     assert_eq!(decoded.source_node, NodeId("1".to_string()));
     assert_eq!(decoded.notifications.len(), 3);
 
     assert_eq!(decoded.notifications[0].state_name, "alpha");
-    assert_eq!(decoded.notifications[0].source_node, NodeId("1".to_string()));
+    assert_eq!(
+        decoded.notifications[0].source_node,
+        NodeId("1".to_string())
+    );
     assert_eq!(decoded.notifications[0].generation, Generation::new(1, 0));
 
     assert_eq!(decoded.notifications[1].state_name, "beta");
-    assert_eq!(decoded.notifications[1].source_node, NodeId("2".to_string()));
+    assert_eq!(
+        decoded.notifications[1].source_node,
+        NodeId("2".to_string())
+    );
     assert_eq!(decoded.notifications[1].generation, Generation::new(2, 5));
 
     assert_eq!(decoded.notifications[2].state_name, "gamma");
-    assert_eq!(decoded.notifications[2].source_node, NodeId("3".to_string()));
+    assert_eq!(
+        decoded.notifications[2].source_node,
+        NodeId("3".to_string())
+    );
     assert_eq!(decoded.notifications[2].generation, Generation::new(0, 99));
 }
 
@@ -115,8 +152,10 @@ fn request_snapshot_round_trip() {
         requester: NodeId("99".to_string()),
     };
 
-    let bytes = bincode::serialize(&msg).expect("serialize");
-    let decoded: SyncMessage = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = bincode::serde::encode_to_vec(&msg, bincode::config::legacy()).expect("serialize");
+    let decoded: SyncMessage = bincode::serde::decode_from_slice(&bytes, bincode::config::legacy())
+        .map(|(value, _)| value)
+        .expect("deserialize");
 
     match decoded {
         SyncMessage::RequestSnapshot {
@@ -140,8 +179,10 @@ fn empty_data_round_trip() {
         data: vec![],
     };
 
-    let bytes = bincode::serialize(&msg).expect("serialize");
-    let decoded: SyncMessage = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = bincode::serde::encode_to_vec(&msg, bincode::config::legacy()).expect("serialize");
+    let decoded: SyncMessage = bincode::serde::decode_from_slice(&bytes, bincode::config::legacy())
+        .map(|(value, _)| value)
+        .expect("deserialize");
 
     match decoded {
         SyncMessage::FullSnapshot { data, .. } => {
@@ -163,8 +204,10 @@ fn large_payload_round_trip() {
         data: payload.clone(),
     };
 
-    let bytes = bincode::serialize(&msg).expect("serialize");
-    let decoded: SyncMessage = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = bincode::serde::encode_to_vec(&msg, bincode::config::legacy()).expect("serialize");
+    let decoded: SyncMessage = bincode::serde::decode_from_slice(&bytes, bincode::config::legacy())
+        .map(|(value, _)| value)
+        .expect("deserialize");
 
     match decoded {
         SyncMessage::FullSnapshot {

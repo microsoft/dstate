@@ -113,9 +113,7 @@ fn reg_03_lookup_typed_mismatch() {
     let mut registry = StateRegistry::new();
     let shard = TestShard::new("my_state");
 
-    registry
-        .register(shard)
-        .expect("should register");
+    registry.register(shard).expect("should register");
 
     let result = registry.lookup_typed::<OtherShard>("my_state");
     assert!(result.is_err());
@@ -132,9 +130,7 @@ fn reg_04_lookup_typed_correct() {
     let mut registry = StateRegistry::new();
     let shard = TestShard::new("my_state");
 
-    registry
-        .register(shard)
-        .expect("should register");
+    registry.register(shard).expect("should register");
 
     let found = registry
         .lookup_typed::<TestShard>("my_state")
@@ -151,9 +147,7 @@ fn reg_04a_duplicate_name() {
         .register(TestShard::new("dup"))
         .expect("first should succeed");
 
-    let err = registry
-        .register(TestShard::new("dup"))
-        .unwrap_err();
+    let err = registry.register(TestShard::new("dup")).unwrap_err();
     assert!(matches!(err, RegistryError::DuplicateName(_)));
 }
 
@@ -239,12 +233,8 @@ fn reg_07_len_and_state_names() {
     assert!(registry.is_empty());
     assert_eq!(registry.len(), 0);
 
-    registry
-        .register(TestShard::new("alpha"))
-        .unwrap();
-    registry
-        .register(TestShard::new("beta"))
-        .unwrap();
+    registry.register(TestShard::new("alpha")).unwrap();
+    registry.register(TestShard::new("beta")).unwrap();
 
     assert_eq!(registry.len(), 2);
     assert!(!registry.is_empty());

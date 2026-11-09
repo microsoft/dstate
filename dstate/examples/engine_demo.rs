@@ -16,9 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dstate::engine::{DistributedStateEngine, EngineAction, EngineQueryResult, WireMessage};
-use dstate::{
-    DeserializeError, DistributedState, NodeId, StateConfig, SyncStrategy, SyncUrgency,
-};
+use dstate::{DeserializeError, DistributedState, NodeId, StateConfig, SyncStrategy, SyncUrgency};
 
 // ── Simple counter state ────────────────────────────────────────
 
@@ -37,13 +35,15 @@ impl DistributedState for Counter {
     const STORAGE_VERSION: u32 = 1;
 
     fn serialize_state(&self) -> Vec<u8> {
-        bincode::serialize(self).unwrap()
+        bincode::serde::encode_to_vec(self, bincode::config::legacy()).unwrap()
     }
     fn deserialize_state(bytes: &[u8], version: u32) -> Result<Self, DeserializeError> {
         if version != Self::WIRE_VERSION {
             return Err(DeserializeError::unknown_version(version));
         }
-        bincode::deserialize(bytes).map_err(|e| DeserializeError::Malformed(e.to_string()))
+        bincode::serde::decode_from_slice(bytes, bincode::config::legacy())
+            .map(|(value, _)| value)
+            .map_err(|e| DeserializeError::Malformed(e.to_string()))
     }
 }
 
@@ -72,12 +72,13 @@ impl InProcessCluster {
                 config.clone(),
                 Counter::WIRE_VERSION,
                 clock.clone(),
-                |v| bincode::serialize(v).unwrap(),
+                |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
                 |b, v| {
                     if v != Counter::WIRE_VERSION {
                         return Err(DeserializeError::unknown_version(v));
                     }
-                    bincode::deserialize(b)
+                    bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                        .map(|(value, _)| value)
                         .map_err(|e| DeserializeError::Malformed(e.to_string()))
                 },
                 None,
@@ -113,11 +114,11 @@ impl InProcessCluster {
 
     /// Mutate a node's state and route resulting actions to peers.
     fn mutate(&mut self, node_id: &NodeId, f: impl FnOnce(&mut Counter)) {
-        let result = self.engines.get_mut(node_id).unwrap().mutate(
-            f,
-            |s| s.clone(),
-            SyncUrgency::Default,
-        );
+        let result =
+            self.engines
+                .get_mut(node_id)
+                .unwrap()
+                .mutate(f, |s| s.clone(), SyncUrgency::Default);
         self.route_actions(node_id.clone(), result.actions);
     }
 
@@ -143,10 +144,7 @@ impl InProcessCluster {
                     // In a real system this would be a timer; here we deliver immediately
                     for peer in &all_ids {
                         if peer != &from {
-                            deliveries.push((
-                                peer.clone(),
-                                WireMessage::Sync(message.clone()),
-                            ));
+                            deliveries.push((peer.clone(), WireMessage::Sync(message.clone())));
                         }
                     }
                 }
@@ -169,15 +167,12 @@ impl InProcessCluster {
 
     /// Query the view map from a node's perspective, routing any stale-peer actions.
     fn query(&mut self, node_id: &NodeId) -> HashMap<NodeId, u64> {
-        let (result, actions) = self.engines[node_id].query(
-            Duration::from_secs(60),
-            |views| {
-                views
-                    .iter()
-                    .map(|(id, vo)| (id.clone(), vo.value.value))
-                    .collect::<HashMap<_, _>>()
-            },
-        );
+        let (result, actions) = self.engines[node_id].query(Duration::from_secs(60), |views| {
+            views
+                .iter()
+                .map(|(id, vo)| (id.clone(), vo.value.value))
+                .collect::<HashMap<_, _>>()
+        });
         if !actions.is_empty() {
             self.route_actions(node_id.clone(), actions);
         }
@@ -237,8 +232,16 @@ fn main() {
     assert_eq!(views[&n2], 200);
 
     // 6. Node departure
-    cluster.engines.get_mut(&n0).unwrap().on_node_left(n2.clone());
-    cluster.engines.get_mut(&n1).unwrap().on_node_left(n2.clone());
+    cluster
+        .engines
+        .get_mut(&n0)
+        .unwrap()
+        .on_node_left(n2.clone());
+    cluster
+        .engines
+        .get_mut(&n1)
+        .unwrap()
+        .on_node_left(n2.clone());
     cluster.engines.remove(&n2);
     println!("\n✓ node-2 departed");
 

@@ -1,7 +1,7 @@
 /// SM-01..SM-03: DistributedState trait tests
 /// DSM-01..DSM-10: DeltaDistributedState trait tests
 use dstate::test_support::test_state::*;
-use dstate::{DeserializeError, DistributedState, DeltaDistributedState, SyncUrgency};
+use dstate::{DeltaDistributedState, DeserializeError, DistributedState};
 
 // ---------------------------------------------------------------------------
 // SM: DistributedState (simple) trait tests

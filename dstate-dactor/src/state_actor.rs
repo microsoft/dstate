@@ -13,9 +13,7 @@ use dactor::ActorRef;
 use dactor::NodeId;
 use tokio_util::sync::CancellationToken;
 
-use dstate::engine::{
-    DistributedStateEngine, EngineAction, EngineQueryResult, WireMessage,
-};
+use dstate::engine::{DistributedStateEngine, EngineAction, EngineQueryResult, WireMessage};
 use dstate::SyncMessage;
 
 use crate::messages::*;
@@ -265,9 +263,9 @@ where
     V: Clone + Send + Sync + Debug + 'static,
 {
     async fn handle(&mut self, msg: QueryViews<V>, _ctx: &mut ActorContext) -> QueryReply<V> {
-        let (result, actions) = self.engine.query(msg.max_staleness, |view_map| {
-            view_map.clone()
-        });
+        let (result, actions) = self
+            .engine
+            .query(msg.max_staleness, |view_map| view_map.clone());
         self.route_actions(actions);
 
         let (views, result) = match result {

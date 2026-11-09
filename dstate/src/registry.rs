@@ -51,10 +51,7 @@ impl StateRegistry {
     ///
     /// Returns `Err(RegistryError::DuplicateName)` if a shard with the
     /// same name is already registered.
-    pub fn register<S: AnyStateShard>(
-        &mut self,
-        shard: S,
-    ) -> Result<(), RegistryError> {
+    pub fn register<S: AnyStateShard>(&mut self, shard: S) -> Result<(), RegistryError> {
         let name = shard.state_name().to_string();
         if self.shards.contains_key(&name) {
             return Err(RegistryError::DuplicateName(name));

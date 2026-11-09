@@ -1,5 +1,5 @@
 use crate::types::errors::MutationError;
-use crate::types::node::{NodeId, Generation};
+use crate::types::node::{Generation, NodeId};
 use std::fmt;
 use std::marker::PhantomData;
 
@@ -46,10 +46,7 @@ impl<S: Clone + Send + 'static> fmt::Debug for SimpleShardMsg<S> {
                 .finish_non_exhaustive(),
             Self::NodeJoined(id) => f.debug_tuple("NodeJoined").field(id).finish(),
             Self::NodeLeft(id) => f.debug_tuple("NodeLeft").field(id).finish(),
-            Self::MarkStale {
-                source,
-                generation,
-            } => f
+            Self::MarkStale { source, generation } => f
                 .debug_struct("MarkStale")
                 .field("source", source)
                 .field("generation", generation)
@@ -147,10 +144,7 @@ where
                 .finish_non_exhaustive(),
             Self::NodeJoined(id) => f.debug_tuple("NodeJoined").field(id).finish(),
             Self::NodeLeft(id) => f.debug_tuple("NodeLeft").field(id).finish(),
-            Self::MarkStale {
-                source,
-                generation,
-            } => f
+            Self::MarkStale { source, generation } => f
                 .debug_struct("MarkStale")
                 .field("source", source)
                 .field("generation", generation)
