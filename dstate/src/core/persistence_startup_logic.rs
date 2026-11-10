@@ -10,13 +10,9 @@ use crate::types::node::Generation;
 #[derive(Debug)]
 pub(crate) enum StartupOutcome<S> {
     /// No persisted state found — fresh start with new incarnation.
-    Fresh {
-        state: StateObject<S>,
-    },
+    Fresh { state: StateObject<S> },
     /// Persisted state loaded successfully at the current storage version.
-    Restored {
-        state: StateObject<S>,
-    },
+    Restored { state: StateObject<S> },
     /// Persisted state loaded and migrated from an older storage version.
     Migrated {
         state: StateObject<S>,
@@ -136,7 +132,10 @@ impl PersistenceStartupLogic {
                                 created_time: loaded.created_time,
                                 modified_time: loaded.modified_time,
                             };
-                            StartupOutcome::Migrated { state, from_version }
+                            StartupOutcome::Migrated {
+                                state,
+                                from_version,
+                            }
                         }
                         Err(reason) => {
                             // Guarantee monotonic incarnation: use the
@@ -203,12 +202,9 @@ mod tests {
         let clock = make_clock();
         let logic = PersistenceStartupLogic::new(1);
 
-        let outcome = logic.initialize::<String, _>(
-            Ok(None),
-            "default".into(),
-            &clock,
-            |_, _| unreachable!("no migration on fresh start"),
-        );
+        let outcome = logic.initialize::<String, _>(Ok(None), "default".into(), &clock, |_, _| {
+            unreachable!("no migration on fresh start")
+        });
 
         match &outcome {
             StartupOutcome::Fresh { state } => {
@@ -236,12 +232,9 @@ mod tests {
             modified_time: 200,
         };
 
-        let outcome = logic.initialize(
-            Ok(Some(loaded)),
-            "default".into(),
-            &clock,
-            |_, _| unreachable!("no migration when versions match"),
-        );
+        let outcome = logic.initialize(Ok(Some(loaded)), "default".into(), &clock, |_, _| {
+            unreachable!("no migration when versions match")
+        });
 
         match &outcome {
             StartupOutcome::Restored { state } => {
@@ -269,12 +262,9 @@ mod tests {
             modified_time: 200,
         };
 
-        let outcome = logic.initialize(
-            Ok(Some(loaded)),
-            "default".into(),
-            &clock,
-            |_, _| Err("migration not supported".into()),
-        );
+        let outcome = logic.initialize(Ok(Some(loaded)), "default".into(), &clock, |_, _| {
+            Err("migration not supported".into())
+        });
 
         match &outcome {
             StartupOutcome::FallbackToEmpty { state, reason } => {
@@ -305,12 +295,9 @@ mod tests {
             modified_time: 60,
         };
 
-        let outcome = logic.initialize(
-            Ok(Some(loaded)),
-            "default".into(),
-            &clock,
-            |_, _| Err("fail".into()),
-        );
+        let outcome = logic.initialize(Ok(Some(loaded)), "default".into(), &clock, |_, _| {
+            Err("fail".into())
+        });
 
         match &outcome {
             StartupOutcome::FallbackToEmpty { state, .. } => {
@@ -331,12 +318,7 @@ mod tests {
         let clock = make_clock();
         let logic = PersistenceStartupLogic::new(1);
 
-        let outcome = logic.initialize::<u64, _>(
-            Ok(None),
-            0,
-            &clock,
-            |_, _| unreachable!(),
-        );
+        let outcome = logic.initialize::<u64, _>(Ok(None), 0, &clock, |_, _| unreachable!());
 
         let state = outcome.into_state();
         assert_eq!(state.generation.age, 0);
@@ -404,12 +386,9 @@ mod tests {
             modified_time: 600,
         };
 
-        let outcome = logic.initialize(
-            Ok(Some(loaded)),
-            "default".into(),
-            &clock,
-            |_, _| unreachable!("no migration when versions match"),
-        );
+        let outcome = logic.initialize(Ok(Some(loaded)), "default".into(), &clock, |_, _| {
+            unreachable!("no migration when versions match")
+        });
 
         let state = outcome.into_state();
         assert_eq!(state.generation, Generation::new(100, 7));
@@ -445,7 +424,10 @@ mod tests {
         );
 
         match &outcome {
-            StartupOutcome::Migrated { state, from_version } => {
+            StartupOutcome::Migrated {
+                state,
+                from_version,
+            } => {
                 assert_eq!(*from_version, 1);
                 assert_eq!(state.value, "migrated_from_old_format");
                 // Incarnation preserved from loaded state
@@ -471,12 +453,9 @@ mod tests {
             modified_time: 600,
         };
 
-        let outcome = logic.initialize(
-            Ok(Some(loaded)),
-            "default".into(),
-            &clock,
-            |_, _| Err("incompatible schema".into()),
-        );
+        let outcome = logic.initialize(Ok(Some(loaded)), "default".into(), &clock, |_, _| {
+            Err("incompatible schema".into())
+        });
 
         match &outcome {
             StartupOutcome::FallbackToEmpty { state, reason } => {

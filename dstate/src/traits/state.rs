@@ -121,10 +121,7 @@ pub trait DeltaDistributedState: Send + Sync + 'static {
     ) -> Result<Self::State, DeserializeError>;
 
     /// Migrate persisted state from an older storage version.
-    fn migrate_state(
-        _bytes: &[u8],
-        _from_version: u32,
-    ) -> Result<Self::State, DeserializeError> {
+    fn migrate_state(_bytes: &[u8], _from_version: u32) -> Result<Self::State, DeserializeError> {
         Err(DeserializeError::unknown_version(_from_version))
     }
 }

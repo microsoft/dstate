@@ -9,9 +9,7 @@ use crate::types::node::NodeId;
 pub(crate) enum JoinAction {
     /// Send the local node's current snapshot to the new peer so it
     /// can populate its view map.
-    SendSnapshotToPeer {
-        target: NodeId,
-    },
+    SendSnapshotToPeer { target: NodeId },
 }
 
 /// Action the actor shell should take after a node leaves.
@@ -19,9 +17,7 @@ pub(crate) enum JoinAction {
 pub(crate) enum LeaveAction {
     /// The peer has been removed from the view map.
     /// Discard any in-flight messages from this node.
-    PeerRemoved {
-        node_id: NodeId,
-    },
+    PeerRemoved { node_id: NodeId },
 }
 
 /// Pure logic for handling cluster lifecycle events (node join, leave,
@@ -106,11 +102,7 @@ impl LifecycleLogic {
     ///
     /// Removes the node from the view map and adds it to the departed set
     /// so that late in-flight messages are filtered.
-    pub fn on_node_left<S, V>(
-        &mut self,
-        shard: &ShardCore<S, V>,
-        node_id: NodeId,
-    ) -> LeaveAction
+    pub fn on_node_left<S, V>(&mut self, shard: &ShardCore<S, V>, node_id: NodeId) -> LeaveAction
     where
         S: Clone + Send + Sync + 'static,
         V: Clone + Send + Sync + Debug + 'static,
@@ -144,7 +136,7 @@ impl LifecycleLogic {
 mod tests {
     use super::*;
     use crate::core::shard_core::{
-        new_state_object, AcceptResult, DeltaAcceptResult, InboundSnapshot, QueryResult,
+        new_state_object, AcceptResult, DeltaAcceptResult, InboundSnapshot,
     };
     use crate::test_support::test_clock::TestClock;
     use crate::test_support::test_state::TestState;
@@ -158,12 +150,12 @@ mod tests {
     }
 
     /// Create a ShardCore for a given node with a counter-based TestState.
-    fn make_shard(
-        node_id: NodeId,
-        clock: Arc<dyn Clock>,
-    ) -> ShardCore<TestState, TestState> {
+    fn make_shard(node_id: NodeId, clock: Arc<dyn Clock>) -> ShardCore<TestState, TestState> {
         let state = new_state_object(
-            TestState { counter: 0, label: format!("node_{}", node_id.0) },
+            TestState {
+                counter: 0,
+                label: format!("node_{}", node_id.0),
+            },
             clock.unix_ms() as u64,
             clock.as_ref(),
         );
@@ -200,9 +192,30 @@ mod tests {
 
         // D joins — add placeholders for existing nodes
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&d, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
-        lifecycle.on_node_joined(&d, NodeId("2".to_string()), TestState { counter: 0, label: "".into() });
-        lifecycle.on_node_joined(&d, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &d,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        lifecycle.on_node_joined(
+            &d,
+            NodeId("2".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        lifecycle.on_node_joined(
+            &d,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         // Existing nodes send snapshots to D
         assert_eq!(send_snapshot(&a, &d), AcceptResult::Accepted);
@@ -231,11 +244,35 @@ mod tests {
         let mut lifecycle = LifecycleLogic::new();
 
         // A and B learn about D joining
-        let actions_a = lifecycle.on_node_joined(&a, NodeId("4".to_string()), TestState { counter: 0, label: "".into() });
-        let actions_b = lifecycle.on_node_joined(&b, NodeId("4".to_string()), TestState { counter: 0, label: "".into() });
+        let actions_a = lifecycle.on_node_joined(
+            &a,
+            NodeId("4".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        let actions_b = lifecycle.on_node_joined(
+            &b,
+            NodeId("4".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
-        assert_eq!(actions_a, vec![JoinAction::SendSnapshotToPeer { target: NodeId("4".to_string()) }]);
-        assert_eq!(actions_b, vec![JoinAction::SendSnapshotToPeer { target: NodeId("4".to_string()) }]);
+        assert_eq!(
+            actions_a,
+            vec![JoinAction::SendSnapshotToPeer {
+                target: NodeId("4".to_string())
+            }]
+        );
+        assert_eq!(
+            actions_b,
+            vec![JoinAction::SendSnapshotToPeer {
+                target: NodeId("4".to_string())
+            }]
+        );
 
         // D sends its snapshot to A and B
         assert_eq!(send_snapshot(&d, &a), AcceptResult::Accepted);
@@ -261,10 +298,38 @@ mod tests {
         let mut lifecycle = LifecycleLogic::new();
 
         // D joins — both state types add placeholder
-        lifecycle.on_node_joined(&a_state1, NodeId("4".to_string()), TestState { counter: 0, label: "".into() });
-        lifecycle.on_node_joined(&a_state2, NodeId("4".to_string()), TestState { counter: 0, label: "".into() });
-        lifecycle.on_node_joined(&d_state1, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
-        lifecycle.on_node_joined(&d_state2, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &a_state1,
+            NodeId("4".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        lifecycle.on_node_joined(
+            &a_state2,
+            NodeId("4".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        lifecycle.on_node_joined(
+            &d_state1,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        lifecycle.on_node_joined(
+            &d_state2,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         // Exchange snapshots for both state types
         assert_eq!(send_snapshot(&a_state1, &d_state1), AcceptResult::Accepted);
@@ -287,13 +352,32 @@ mod tests {
         let a = make_shard(NodeId("1".to_string()), clock.clone());
 
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&a, NodeId("2".to_string()), TestState { counter: 0, label: "".into() });
-        lifecycle.on_node_joined(&a, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &a,
+            NodeId("2".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        lifecycle.on_node_joined(
+            &a,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         assert_eq!(a.view_count(), 3);
 
         // Node 3 leaves
         let action = lifecycle.on_node_left(&a, NodeId("3".to_string()));
-        assert_eq!(action, LeaveAction::PeerRemoved { node_id: NodeId("3".to_string()) });
+        assert_eq!(
+            action,
+            LeaveAction::PeerRemoved {
+                node_id: NodeId("3".to_string())
+            }
+        );
 
         assert_eq!(a.view_count(), 2);
         assert!(!a.snapshot().contains_key(&NodeId("3".to_string())));
@@ -306,10 +390,17 @@ mod tests {
     fn life_05_inflight_from_departed_discarded() {
         let clock = test_clock();
         let a = make_shard(NodeId("1".to_string()), clock.clone());
-        let c = make_shard(NodeId("3".to_string()), clock.clone());
+        let _c = make_shard(NodeId("3".to_string()), clock.clone());
 
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&a, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &a,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         assert_eq!(a.view_count(), 2);
 
         // C leaves
@@ -322,12 +413,10 @@ mod tests {
         // Even if we tried to accept a snapshot, the actor shell would
         // have filtered it via should_accept_from(). For deltas,
         // ShardCore itself returns UnknownPeer since the entry was removed.
-        let delta_result = a.accept_inbound_delta(
-            NodeId("3".to_string()),
-            Generation::new(1, 1),
-            1,
-            |v| v.clone(),
-        );
+        let delta_result =
+            a.accept_inbound_delta(NodeId("3".to_string()), Generation::new(1, 1), 1, |v| {
+                v.clone()
+            });
         assert_eq!(delta_result, DeltaAcceptResult::UnknownPeer);
     }
 
@@ -340,8 +429,22 @@ mod tests {
         let a_s2 = make_shard(NodeId("1".to_string()), clock.clone());
 
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&a_s1, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
-        lifecycle.on_node_joined(&a_s2, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &a_s1,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
+        lifecycle.on_node_joined(
+            &a_s2,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         // Node 3 leaves — both state types updated
         lifecycle.on_node_left(&a_s1, NodeId("3".to_string()));
@@ -369,7 +472,14 @@ mod tests {
         // Peer B has A's view at (old_incarnation, 3)
         let b = make_shard(NodeId("2".to_string()), clock.clone());
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         send_snapshot(&a, &b);
 
         // A crashes. Advance clock for new incarnation.
@@ -380,12 +490,22 @@ mod tests {
         // A restarts with new incarnation (no persistence)
         let a2 = make_shard(NodeId("1".to_string()), clock2.clone());
         let new_incarnation = a2.state().generation.incarnation;
-        assert!(new_incarnation > old_incarnation, "new incarnation should be higher");
+        assert!(
+            new_incarnation > old_incarnation,
+            "new incarnation should be higher"
+        );
         assert_eq!(a2.state().generation.age, 0);
 
         // B receives A's new snapshot — accepted because incarnation is higher
         // First, simulate NodeJoined for the restarted A
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         let result = send_snapshot(&a2, &b);
         assert_eq!(result, AcceptResult::Accepted);
     }
@@ -407,7 +527,14 @@ mod tests {
         // B has A's view
         let b = make_shard(NodeId("2".to_string()), clock.clone());
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         send_snapshot(&a, &b);
 
         let b_view = b.get_view(&NodeId("1".to_string())).unwrap();
@@ -427,7 +554,14 @@ mod tests {
         assert_eq!(a2.state().generation, saved_state.generation);
 
         // NodeJoined fires → creates placeholder (generation::zero)
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         // B receives snapshot from restarted A — accepted (generation > zero)
         let result = send_snapshot(&a2, &b);
@@ -450,7 +584,14 @@ mod tests {
 
         let b = make_shard(NodeId("2".to_string()), clock.clone());
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         send_snapshot(&a, &b);
 
         // A crashes and restarts immediately (NodeLeft never fires)
@@ -460,15 +601,24 @@ mod tests {
         let a2 = make_shard(NodeId("1".to_string()), clock2.clone());
 
         // NodeJoined fires for restarted A (no NodeLeft in between)
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         // B accepts A's new snapshot (new incarnation > old)
         let result = send_snapshot(&a2, &b);
         assert_eq!(result, AcceptResult::Accepted);
 
         let b_view = b.get_view(&NodeId("1".to_string())).unwrap();
-        assert!(b_view.generation.incarnation > old_gen.incarnation
-            || b_view.generation.incarnation == a2.state().generation.incarnation);
+        assert!(
+            b_view.generation.incarnation > old_gen.incarnation
+                || b_view.generation.incarnation == a2.state().generation.incarnation
+        );
     }
 
     // ── LIFE-10: Late NodeLeft after rejoin ──────────────────────────
@@ -482,7 +632,14 @@ mod tests {
         let mut lifecycle = LifecycleLogic::new();
 
         // Normal setup: B knows about A
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         send_snapshot(&a, &b);
         assert_eq!(b.view_count(), 2);
 
@@ -493,7 +650,14 @@ mod tests {
         let a2 = make_shard(NodeId("1".to_string()), clock2);
 
         // NodeJoined fires for restarted A
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         send_snapshot(&a2, &b);
         assert_eq!(b.view_count(), 2);
 
@@ -504,7 +668,14 @@ mod tests {
 
         // A is still alive — in real system, another NodeJoined would fire.
         // Simulate: NodeJoined clears departed set, view re-created.
-        lifecycle.on_node_joined(&b, NodeId("1".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &b,
+            NodeId("1".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
         assert!(lifecycle.should_accept_from(&NodeId("1".to_string())));
         send_snapshot(&a2, &b);
         assert_eq!(b.view_count(), 2);
@@ -520,7 +691,14 @@ mod tests {
 
         let a = make_shard(NodeId("1".to_string()), clock.clone());
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&a, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &a,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         // Simulate C sending initial snapshot
         let c = make_shard(NodeId("3".to_string()), clock.clone());
@@ -531,7 +709,10 @@ mod tests {
 
         // Query with tight freshness
         let stale = a.stale_peers(Duration::from_secs(10));
-        assert!(stale.contains(&NodeId("3".to_string())), "C should be stale after partition");
+        assert!(
+            stale.contains(&NodeId("3".to_string())),
+            "C should be stale after partition"
+        );
     }
 
     // ── LIFE-12: Views recover after partition heals ─────────────────
@@ -543,7 +724,14 @@ mod tests {
 
         let a = make_shard(NodeId("1".to_string()), clock.clone());
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&a, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &a,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         let c = make_shard(NodeId("3".to_string()), clock.clone());
         send_snapshot(&c, &a);
@@ -572,7 +760,14 @@ mod tests {
 
         let a = make_shard(NodeId("1".to_string()), clock.clone());
         let mut lifecycle = LifecycleLogic::new();
-        lifecycle.on_node_joined(&a, NodeId("3".to_string()), TestState { counter: 0, label: "".into() });
+        lifecycle.on_node_joined(
+            &a,
+            NodeId("3".to_string()),
+            TestState {
+                counter: 0,
+                label: "".into(),
+            },
+        );
 
         let c = make_shard(NodeId("3".to_string()), clock.clone());
         send_snapshot(&c, &a);
@@ -586,9 +781,7 @@ mod tests {
 
         // Loose freshness (60s) → not stale, query succeeds
         use crate::core::shard_core::QueryResult;
-        let result = a.query_local(Duration::from_secs(60), |views| {
-            views.len()
-        });
+        let result = a.query_local(Duration::from_secs(60), |views| views.len());
         match result {
             QueryResult::Fresh(count) => assert_eq!(count, 2),
             _ => panic!("expected Fresh with loose freshness"),

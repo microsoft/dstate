@@ -9,7 +9,9 @@ use std::time::Duration;
 use dstate::engine::DistributedStateEngine;
 use dstate::test_support::test_clock::TestClock;
 use dstate::test_support::test_state::TestState;
-use dstate::{Clock, DeserializeError, DistributedState, NodeId, StateConfig, SyncStrategy, SyncUrgency};
+use dstate::{
+    Clock, DeserializeError, DistributedState, NodeId, StateConfig, SyncStrategy, SyncUrgency,
+};
 use dstate_integration::cluster::MockCluster;
 
 fn active_push_config() -> StateConfig {
@@ -35,12 +37,14 @@ fn make_engine(
         active_push_config(),
         TestState::WIRE_VERSION,
         clock,
-        |v| bincode::serialize(v).unwrap(),
+        |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
         |b, v| {
             if v != TestState::WIRE_VERSION {
                 return Err(DeserializeError::unknown_version(v));
             }
-            bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+            bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                .map(|(value, _)| value)
+                .map_err(|e| DeserializeError::Malformed(e.to_string()))
         },
         None,
     )
@@ -90,7 +94,8 @@ fn test_12_settle_delivers_all_messages() {
     for i in 1..3 {
         let snap = cluster.engine(node(i)).snapshot();
         assert_eq!(
-            snap[&node(0)].value.counter, 42,
+            snap[&node(0)].value.counter,
+            42,
             "node {i} should see the mutation after settle"
         );
     }
@@ -102,9 +107,7 @@ fn test_12b_settle_with_limit_panics() {
 
     // Add a DropAll interceptor so messages never arrive
     use dstate_integration::interceptor::DropAll;
-    cluster
-        .transport_mut()
-        .add_interceptor(Box::new(DropAll));
+    cluster.transport_mut().add_interceptor(Box::new(DropAll));
 
     cluster.mutate(
         node(0),
@@ -173,8 +176,7 @@ fn test_13_crash_and_restart() {
     // Incarnation should be different (based on clock time)
     // Note: with TestClock at base 1_000_000 and some ticks, the incarnation changes
     assert_ne!(
-        pre_crash_gen.incarnation,
-        post_crash_gen.incarnation,
+        pre_crash_gen.incarnation, post_crash_gen.incarnation,
         "new incarnation should differ from pre-crash"
     );
 }
@@ -217,7 +219,7 @@ fn test_14_advance_time_controls_clock() {
     let snap = cluster.engine(node(0)).snapshot();
     let modified_time = snap[&node(0)].modified_time;
     assert!(
-        modified_time >= t1 as i64,
+        modified_time >= t1,
         "modified_time ({modified_time}) should be >= advanced clock ({t1})"
     );
 

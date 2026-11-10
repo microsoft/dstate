@@ -8,9 +8,7 @@
 
 use std::time::Duration;
 
-use dstate::{
-    BatchedChangeFeed, ChangeNotification, Generation, NodeId, PushMode, SyncStrategy,
-};
+use dstate::{BatchedChangeFeed, ChangeNotification, Generation, NodeId, PushMode, SyncStrategy};
 
 // ── SyncStrategy factory tests (public API) ─────────────────────
 

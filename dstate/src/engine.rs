@@ -91,10 +91,7 @@ pub enum EngineQueryResult<R> {
     Fresh(R),
     /// Some peer views are stale; the engine has issued
     /// `RequestSnapshot` actions for stale peers.
-    Stale {
-        result: R,
-        stale_peers: Vec<NodeId>,
-    },
+    Stale { result: R, stale_peers: Vec<NodeId> },
 }
 
 /// Health status of the engine.
@@ -136,8 +133,7 @@ pub struct EngineHealth {
 type SerializeViewFn<V> = Box<dyn Fn(&V) -> Vec<u8> + Send + Sync>;
 
 /// Function type for deserializing a view from bytes.
-type DeserializeViewFn<V> =
-    Box<dyn Fn(&[u8], u32) -> Result<V, DeserializeError> + Send + Sync>;
+type DeserializeViewFn<V> = Box<dyn Fn(&[u8], u32) -> Result<V, DeserializeError> + Send + Sync>;
 
 /// Function type for applying an inbound delta: `(bytes, wire_version, current_view) → new_view`.
 type InboundDeltaApplierFn<V> =
@@ -217,11 +213,7 @@ where
 
         let shard = ShardCore::new(node_id.clone(), state, initial_view, clock.clone());
 
-        let sync_logic = SyncLogic::new(
-            state_name.clone(),
-            config.sync_strategy.clone(),
-            supports_delta,
-        );
+        let sync_logic = SyncLogic::new(config.sync_strategy.clone(), supports_delta);
         let change_feed = ChangeFeedLogic::new(node_id);
         let versioning = VersioningLogic::new(
             state_name.clone(),
@@ -317,7 +309,7 @@ where
     /// in response to a `RequestSnapshot`).
     ///
     /// **Note on unknown peers:** The engine accepts inbound snapshots even
-    /// from peers that have not been announced via [`on_node_joined`]. This
+    /// from peers that have not been announced via [`Self::on_node_joined`]. This
     /// allows late-arriving snapshots to populate the view map. If stricter
     /// membership control is desired, the caller should gate inbound messages
     /// before calling this method.
@@ -367,8 +359,7 @@ where
     /// will trigger snapshot requests on the next query (if `pull_on_query`
     /// is enabled). Notifications from departed nodes are ignored.
     pub fn handle_inbound_change_feed(&mut self, feed: BatchedChangeFeed) {
-        let entries =
-            ChangeFeedLogic::route_inbound_batch(&feed, self.shard.node_id());
+        let entries = ChangeFeedLogic::route_inbound_batch(&feed, self.shard.node_id());
         for (sn, source, gen) in entries {
             if sn != self.state_name {
                 continue;
@@ -403,7 +394,9 @@ where
     ///
     /// Returns a `SendSync` action with our current snapshot for the new peer.
     pub fn on_node_joined(&mut self, node_id: NodeId, default_view: V) -> Vec<EngineAction> {
-        let join_actions = self.lifecycle.on_node_joined(&self.shard, node_id, default_view);
+        let join_actions = self
+            .lifecycle
+            .on_node_joined(&self.shard, node_id, default_view);
 
         let mut actions = Vec::new();
         for ja in join_actions {
@@ -455,9 +448,7 @@ where
     ) -> (EngineQueryResult<R>, Vec<EngineAction>) {
         let result = self.shard.query_local(max_staleness, project);
         match result {
-            crate::core::shard_core::QueryResult::Fresh(r) => {
-                (EngineQueryResult::Fresh(r), vec![])
-            }
+            crate::core::shard_core::QueryResult::Fresh(r) => (EngineQueryResult::Fresh(r), vec![]),
             crate::core::shard_core::QueryResult::StalePeersDetected {
                 stale_peers,
                 result,
@@ -727,9 +718,10 @@ where
             return vec![];
         }
 
-        let view = match self.versioning.on_inbound(&data, wire_version, |d, v| {
-            (self.deserialize_view)(d, v)
-        }) {
+        let view = match self
+            .versioning
+            .on_inbound(&data, wire_version, |d, v| (self.deserialize_view)(d, v))
+        {
             InboundVersionResult::Ok(view) => view,
             InboundVersionResult::VersionMismatch(action) => {
                 match &action {
@@ -860,11 +852,12 @@ where
             }
         };
 
-        let result = self
-            .shard
-            .accept_inbound_delta(source_node.clone(), generation, wire_version, |_existing| {
-                new_view
-            });
+        let result = self.shard.accept_inbound_delta(
+            source_node.clone(),
+            generation,
+            wire_version,
+            |_existing| new_view,
+        );
 
         match result {
             DeltaAcceptResult::Applied => {
@@ -944,12 +937,13 @@ mod tests {
             StateConfig::default(), // ActivePush
             1,
             clock,
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, v| {
                 if v != 1 {
                     return Err(DeserializeError::unknown_version(v));
                 }
-                bincode::deserialize(b)
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
                     .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
@@ -992,12 +986,13 @@ mod tests {
             },
             1,
             clock,
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, v| {
                 if v != 1 {
                     return Err(DeserializeError::unknown_version(v));
                 }
-                bincode::deserialize(b)
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
                     .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
@@ -1161,7 +1156,7 @@ mod tests {
             counter: 42,
             label: "peer".into(),
         };
-        let data = bincode::serialize(&peer_state).unwrap();
+        let data = bincode::serde::encode_to_vec(&peer_state, bincode::config::legacy()).unwrap();
 
         let actions = engine.handle_inbound_sync(SyncMessage::FullSnapshot {
             state_name: "test_state".into(),
@@ -1212,7 +1207,7 @@ mod tests {
             counter: 99,
             label: "ghost".into(),
         };
-        let data = bincode::serialize(&peer_state).unwrap();
+        let data = bincode::serde::encode_to_vec(&peer_state, bincode::config::legacy()).unwrap();
 
         let actions = engine.handle_inbound_sync(SyncMessage::FullSnapshot {
             state_name: "test_state".into(),
@@ -1270,7 +1265,13 @@ mod tests {
         let mut engine = make_delta_engine(NodeId("1".to_string()), clock);
 
         // Add peer and accept initial snapshot
-        engine.on_node_joined(NodeId("2".to_string()), TestDeltaView { counter: 0, label: String::new() });
+        engine.on_node_joined(
+            NodeId("2".to_string()),
+            TestDeltaView {
+                counter: 0,
+                label: String::new(),
+            },
+        );
         let initial_view = TestDeltaView {
             counter: 10,
             label: "peer".into(),
@@ -1320,7 +1321,10 @@ mod tests {
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            EngineAction::SendSync { target, message: SyncMessage::RequestSnapshot { .. } } => {
+            EngineAction::SendSync {
+                target,
+                message: SyncMessage::RequestSnapshot { .. },
+            } => {
                 assert_eq!(*target, NodeId("2".to_string()));
             }
             other => panic!("expected SendSync/RequestSnapshot, got {:?}", other),
@@ -1331,10 +1335,19 @@ mod tests {
     fn inbound_delta_gap_requests_snapshot() {
         let clock = test_clock();
         let mut engine = make_delta_engine(NodeId("1".to_string()), clock);
-        engine.on_node_joined(NodeId("2".to_string()), TestDeltaView { counter: 0, label: String::new() });
+        engine.on_node_joined(
+            NodeId("2".to_string()),
+            TestDeltaView {
+                counter: 0,
+                label: String::new(),
+            },
+        );
 
         // Accept snapshot at age=1
-        let initial_view = TestDeltaView { counter: 10, label: "peer".into() };
+        let initial_view = TestDeltaView {
+            counter: 10,
+            label: "peer".into(),
+        };
         engine.handle_inbound_sync(SyncMessage::FullSnapshot {
             state_name: "test_delta_state".into(),
             source_node: NodeId("2".to_string()),
@@ -1344,7 +1357,10 @@ mod tests {
         });
 
         // Send delta at age=5 (gap: expected age=2)
-        let delta = TestDeltaViewDelta { counter_delta: 1, new_label: None };
+        let delta = TestDeltaViewDelta {
+            counter_delta: 1,
+            new_label: None,
+        };
         let actions = engine.handle_inbound_sync(SyncMessage::DeltaUpdate {
             state_name: "test_delta_state".into(),
             source_node: NodeId("2".to_string()),
@@ -1384,7 +1400,10 @@ mod tests {
         } = &actions[0]
         {
             assert_eq!(*target, NodeId("2".to_string()));
-            let view: TestState = bincode::deserialize(data).unwrap();
+            let view: TestState =
+                bincode::serde::decode_from_slice(data, bincode::config::legacy())
+                    .map(|(value, _)| value)
+                    .unwrap();
             assert_eq!(view.counter, 42);
         } else {
             panic!("expected SendSync with FullSnapshot");
@@ -1400,7 +1419,14 @@ mod tests {
         engine.on_node_joined(NodeId("2".to_string()), TestState::default());
 
         // Accept initial snapshot from node 2 so it has a real generation
-        let data = bincode::serialize(&TestState { counter: 1, label: "x".into() }).unwrap();
+        let data = bincode::serde::encode_to_vec(
+            &TestState {
+                counter: 1,
+                label: "x".into(),
+            },
+            bincode::config::legacy(),
+        )
+        .unwrap();
         engine.handle_inbound_sync(SyncMessage::FullSnapshot {
             state_name: "test_state".into(),
             source_node: NodeId("2".to_string()),
@@ -1443,7 +1469,10 @@ mod tests {
 
         assert_eq!(actions.len(), 1);
         match &actions[0] {
-            EngineAction::SendSync { target, message: SyncMessage::FullSnapshot { .. } } => {
+            EngineAction::SendSync {
+                target,
+                message: SyncMessage::FullSnapshot { .. },
+            } => {
                 assert_eq!(*target, NodeId("2".to_string()));
             }
             other => panic!("expected SendSync/FullSnapshot, got {:?}", other),
@@ -1497,9 +1526,10 @@ mod tests {
             },
             1,
             clock,
-            |v| bincode::serialize(v).unwrap(),
+            |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
             |b, _| {
-                bincode::deserialize(b)
+                bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                    .map(|(value, _)| value)
                     .map_err(|e| DeserializeError::Malformed(e.to_string()))
             },
             None,
@@ -1678,7 +1708,14 @@ mod tests {
 
         // Add peer, accept initial snapshot, then remove
         engine.on_node_joined(NodeId("2".to_string()), TestState::default());
-        let data = bincode::serialize(&TestState { counter: 1, label: "x".into() }).unwrap();
+        let data = bincode::serde::encode_to_vec(
+            &TestState {
+                counter: 1,
+                label: "x".into(),
+            },
+            bincode::config::legacy(),
+        )
+        .unwrap();
         engine.handle_inbound_sync(SyncMessage::FullSnapshot {
             state_name: "test_state".into(),
             source_node: NodeId("2".to_string()),
@@ -1721,7 +1758,14 @@ mod tests {
 
         // Accept snapshots from both
         for &id in &[2u64, 3] {
-            let data = bincode::serialize(&TestState { counter: id, label: format!("n{id}") }).unwrap();
+            let data = bincode::serde::encode_to_vec(
+                &TestState {
+                    counter: id,
+                    label: format!("n{id}"),
+                },
+                bincode::config::legacy(),
+            )
+            .unwrap();
             engine.handle_inbound_sync(SyncMessage::FullSnapshot {
                 state_name: "test_state".into(),
                 source_node: NodeId(id.to_string()),
@@ -1765,9 +1809,18 @@ mod tests {
         let clock = test_clock();
         let mut engine = make_delta_engine(NodeId("1".to_string()), clock);
 
-        engine.on_node_joined(NodeId("2".to_string()), TestDeltaView { counter: 0, label: String::new() });
+        engine.on_node_joined(
+            NodeId("2".to_string()),
+            TestDeltaView {
+                counter: 0,
+                label: String::new(),
+            },
+        );
         // Accept snapshot at age=5
-        let view = TestDeltaView { counter: 50, label: "peer".into() };
+        let view = TestDeltaView {
+            counter: 50,
+            label: "peer".into(),
+        };
         engine.handle_inbound_sync(SyncMessage::FullSnapshot {
             state_name: "test_delta_state".into(),
             source_node: NodeId("2".to_string()),
@@ -1777,7 +1830,10 @@ mod tests {
         });
 
         // Send delta at age=3 (stale — older than current age=5)
-        let delta = TestDeltaViewDelta { counter_delta: 1, new_label: None };
+        let delta = TestDeltaViewDelta {
+            counter_delta: 1,
+            new_label: None,
+        };
         let actions = engine.handle_inbound_sync(SyncMessage::DeltaUpdate {
             state_name: "test_delta_state".into(),
             source_node: NodeId("2".to_string()),
@@ -1799,8 +1855,17 @@ mod tests {
         let clock = test_clock();
         let mut engine = make_delta_engine(NodeId("1".to_string()), clock);
 
-        engine.on_node_joined(NodeId("2".to_string()), TestDeltaView { counter: 0, label: String::new() });
-        let view = TestDeltaView { counter: 10, label: "p".into() };
+        engine.on_node_joined(
+            NodeId("2".to_string()),
+            TestDeltaView {
+                counter: 0,
+                label: String::new(),
+            },
+        );
+        let view = TestDeltaView {
+            counter: 10,
+            label: "p".into(),
+        };
         engine.handle_inbound_sync(SyncMessage::FullSnapshot {
             state_name: "test_delta_state".into(),
             source_node: NodeId("2".to_string()),

@@ -138,7 +138,10 @@ pub struct Partition {
 
 impl Partition {
     /// Create a symmetric partition (A cannot reach B and B cannot reach A).
-    pub fn symmetric(a: impl IntoIterator<Item = NodeId>, b: impl IntoIterator<Item = NodeId>) -> Self {
+    pub fn symmetric(
+        a: impl IntoIterator<Item = NodeId>,
+        b: impl IntoIterator<Item = NodeId>,
+    ) -> Self {
         Self {
             set_a: a.into_iter().collect(),
             set_b: b.into_iter().collect(),
@@ -147,7 +150,10 @@ impl Partition {
     }
 
     /// Create an asymmetric partition (A cannot reach B, but B can reach A).
-    pub fn asymmetric(a: impl IntoIterator<Item = NodeId>, b: impl IntoIterator<Item = NodeId>) -> Self {
+    pub fn asymmetric(
+        a: impl IntoIterator<Item = NodeId>,
+        b: impl IntoIterator<Item = NodeId>,
+    ) -> Self {
         Self {
             set_a: a.into_iter().collect(),
             set_b: b.into_iter().collect(),
@@ -268,14 +274,24 @@ mod tests {
     #[test]
     fn passthrough_delivers() {
         let mut p = PassThrough;
-        let action = p.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"hello", &ctx(0, 0));
+        let action = p.intercept(
+            NodeId("1".to_string()),
+            NodeId("2".to_string()),
+            b"hello",
+            &ctx(0, 0),
+        );
         assert!(matches!(action, InterceptAction::Deliver(d) if d == b"hello"));
     }
 
     #[test]
     fn drop_all_drops() {
         let mut d = DropAll;
-        let action = d.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"hello", &ctx(0, 0));
+        let action = d.intercept(
+            NodeId("1".to_string()),
+            NodeId("2".to_string()),
+            b"hello",
+            &ctx(0, 0),
+        );
         assert!(matches!(action, InterceptAction::Drop));
     }
 
@@ -285,19 +301,35 @@ mod tests {
         let mut dropped = 0;
         let mut delivered = 0;
         for i in 0..100 {
-            match dr.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"x", &ctx(0, i)) {
+            match dr.intercept(
+                NodeId("1".to_string()),
+                NodeId("2".to_string()),
+                b"x",
+                &ctx(0, i),
+            ) {
                 InterceptAction::Drop => dropped += 1,
                 InterceptAction::Deliver(_) => delivered += 1,
                 _ => panic!("unexpected action"),
             }
         }
-        assert!(dropped > 0 && delivered > 0, "should have both drops and deliveries");
+        assert!(
+            dropped > 0 && delivered > 0,
+            "should have both drops and deliveries"
+        );
 
         // Run again with same seed — should produce same results
         let mut dr2 = DropRate::new(0.5, 12345);
         let mut dropped2 = 0;
         for i in 0..100 {
-            if matches!(dr2.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"x", &ctx(0, i)), InterceptAction::Drop) {
+            if matches!(
+                dr2.intercept(
+                    NodeId("1".to_string()),
+                    NodeId("2".to_string()),
+                    b"x",
+                    &ctx(0, i)
+                ),
+                InterceptAction::Drop
+            ) {
                 dropped2 += 1;
             }
         }
@@ -309,17 +341,32 @@ mod tests {
         let mut p = Partition::symmetric([NodeId("1".to_string())], [NodeId("2".to_string())]);
         // A→B blocked
         assert!(matches!(
-            p.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"x", &ctx(0, 0)),
+            p.intercept(
+                NodeId("1".to_string()),
+                NodeId("2".to_string()),
+                b"x",
+                &ctx(0, 0)
+            ),
             InterceptAction::Drop
         ));
         // B→A also blocked
         assert!(matches!(
-            p.intercept(NodeId("2".to_string()), NodeId("1".to_string()), b"x", &ctx(0, 1)),
+            p.intercept(
+                NodeId("2".to_string()),
+                NodeId("1".to_string()),
+                b"x",
+                &ctx(0, 1)
+            ),
             InterceptAction::Drop
         ));
         // A→C not blocked
         assert!(matches!(
-            p.intercept(NodeId("1".to_string()), NodeId("3".to_string()), b"x", &ctx(0, 2)),
+            p.intercept(
+                NodeId("1".to_string()),
+                NodeId("3".to_string()),
+                b"x",
+                &ctx(0, 2)
+            ),
             InterceptAction::Deliver(_)
         ));
     }
@@ -329,12 +376,22 @@ mod tests {
         let mut p = Partition::asymmetric([NodeId("1".to_string())], [NodeId("2".to_string())]);
         // A→B blocked
         assert!(matches!(
-            p.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"x", &ctx(0, 0)),
+            p.intercept(
+                NodeId("1".to_string()),
+                NodeId("2".to_string()),
+                b"x",
+                &ctx(0, 0)
+            ),
             InterceptAction::Drop
         ));
         // B→A allowed
         assert!(matches!(
-            p.intercept(NodeId("2".to_string()), NodeId("1".to_string()), b"x", &ctx(0, 1)),
+            p.intercept(
+                NodeId("2".to_string()),
+                NodeId("1".to_string()),
+                b"x",
+                &ctx(0, 1)
+            ),
             InterceptAction::Deliver(_)
         ));
     }
@@ -342,14 +399,24 @@ mod tests {
     #[test]
     fn delay_ticks() {
         let mut d = DelayTicks(3);
-        let action = d.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"x", &ctx(0, 0));
+        let action = d.intercept(
+            NodeId("1".to_string()),
+            NodeId("2".to_string()),
+            b"x",
+            &ctx(0, 0),
+        );
         assert!(matches!(action, InterceptAction::Delay { ticks: 3, .. }));
     }
 
     #[test]
     fn duplicate_all() {
         let mut d = DuplicateAll;
-        let action = d.intercept(NodeId("1".to_string()), NodeId("2".to_string()), b"x", &ctx(0, 0));
+        let action = d.intercept(
+            NodeId("1".to_string()),
+            NodeId("2".to_string()),
+            b"x",
+            &ctx(0, 0),
+        );
         match action {
             InterceptAction::DeliverMany(copies) => {
                 assert_eq!(copies.len(), 2);
@@ -363,7 +430,12 @@ mod tests {
     fn corrupt_bytes_flips_bit() {
         let mut c = CorruptBytes::new(42);
         let original = b"hello world";
-        let action = c.intercept(NodeId("1".to_string()), NodeId("2".to_string()), original, &ctx(0, 0));
+        let action = c.intercept(
+            NodeId("1".to_string()),
+            NodeId("2".to_string()),
+            original,
+            &ctx(0, 0),
+        );
         match action {
             InterceptAction::Deliver(bytes) => {
                 assert_ne!(bytes.as_slice(), original);

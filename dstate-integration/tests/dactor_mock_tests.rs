@@ -23,8 +23,8 @@ use dstate::test_support::test_state::TestState;
 use dstate::{DeserializeError, DistributedState, StateConfig, SyncMessage, SyncUrgency};
 
 use dstate_dactor::{
-    ActorRefPeerSender, ClusterChange, FlushChangeFeed, Mutate, PeerRegistry, PeerSender,
-    PeriodicSync, QueryViews, StateActor, StateActorArgs, new_peer_registry,
+    new_peer_registry, ActorRefPeerSender, ClusterChange, FlushChangeFeed, Mutate, PeerRegistry,
+    PeerSender, PeriodicSync, QueryViews, StateActor, StateActorArgs,
 };
 
 // ── Partition-aware peer sender ─────────────────────────────────
@@ -58,7 +58,10 @@ impl PeerSender for PartitionAwarePeerSender {
 // ── Test helpers ────────────────────────────────────────────────
 
 /// Create a TestState engine for a given node.
-fn make_engine(node_id: &str, clock: Arc<TestClock>) -> DistributedStateEngine<TestState, TestState> {
+fn make_engine(
+    node_id: &str,
+    clock: Arc<TestClock>,
+) -> DistributedStateEngine<TestState, TestState> {
     let config = StateConfig {
         sync_strategy: dstate::SyncStrategy::feed_with_periodic_sync(Duration::from_secs(1)),
         ..StateConfig::default()
@@ -71,12 +74,14 @@ fn make_engine(node_id: &str, clock: Arc<TestClock>) -> DistributedStateEngine<T
         config,
         TestState::WIRE_VERSION,
         clock,
-        |v| bincode::serialize(v).unwrap(),
+        |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
         |b, v| {
             if v != TestState::WIRE_VERSION {
                 return Err(DeserializeError::unknown_version(v));
             }
-            bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+            bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                .map(|(value, _)| value)
+                .map_err(|e| DeserializeError::Malformed(e.to_string()))
         },
         None,
     )
@@ -171,11 +176,7 @@ async fn setup_cluster(
 }
 
 /// Helper: mutate state on a node.
-fn tell_mutate(
-    actor: &TestActorRef<StateActor<TestState, TestState>>,
-    counter: u64,
-    label: &str,
-) {
+fn tell_mutate(actor: &TestActorRef<StateActor<TestState, TestState>>, counter: u64, label: &str) {
     let label = label.to_string();
     actor
         .tell(Mutate {
@@ -208,7 +209,8 @@ async fn ask_query(
 /// Mutate on node-1, verify node-2 and node-3 receive the update.
 #[tokio::test]
 async fn mock_01_basic_replication() {
-    let (_cluster, actors, _registries, _clock, _network) = setup_cluster(&["n1", "n2", "n3"]).await;
+    let (_cluster, actors, _registries, _clock, _network) =
+        setup_cluster(&["n1", "n2", "n3"]).await;
 
     // Mutate on n1
     tell_mutate(&actors["n1"], 42, "hello");
@@ -256,10 +258,7 @@ async fn mock_02_network_partition() {
     // n2 should NOT have the update (partitioned)
     let views_n2 = ask_query(&actors["n2"]).await;
     // n2 might have n1's initial default view (counter=0) from the join phase
-    let n1_counter_on_n2 = views_n2
-        .get(&n1_id)
-        .map(|v| v.value.counter)
-        .unwrap_or(0);
+    let n1_counter_on_n2 = views_n2.get(&n1_id).map(|v| v.value.counter).unwrap_or(0);
     assert_ne!(
         n1_counter_on_n2, 99,
         "n2 should not have received n1's update through partition"
@@ -288,7 +287,8 @@ async fn mock_02_network_partition() {
 /// Node n2 crashes (actor stops), a new n2 is spawned and rejoins.
 #[tokio::test]
 async fn mock_03_crash_and_restart() {
-    let (mut cluster, mut actors, mut registries, clock, network) = setup_cluster(&["n1", "n2", "n3"]).await;
+    let (mut cluster, mut actors, mut registries, clock, network) =
+        setup_cluster(&["n1", "n2", "n3"]).await;
 
     // Mutate on n1 before crash
     tell_mutate(&actors["n1"], 10, "before-crash");

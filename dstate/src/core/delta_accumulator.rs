@@ -38,7 +38,7 @@ impl<VD: Clone + Debug> DeltaAccumulator<VD> {
         if self.buffer.is_empty() {
             None
         } else {
-            Some(self.buffer.drain(..).collect())
+            Some(std::mem::take(&mut self.buffer))
         }
     }
 

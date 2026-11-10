@@ -1,7 +1,8 @@
 //! Integration tests for StateActor using dactor-mock.
 
 use std::collections::HashMap;
-use std::sync::Arc;use std::time::Duration;
+use std::sync::Arc;
+use std::time::Duration;
 
 use dactor::actor::ActorRef;
 use dactor::test_support::test_runtime::TestActorRef;
@@ -30,12 +31,14 @@ fn make_engine(
         config,
         TestState::WIRE_VERSION,
         clock,
-        |v| bincode::serialize(v).unwrap(),
+        |v| bincode::serde::encode_to_vec(v, bincode::config::legacy()).unwrap(),
         |b, v| {
             if v != TestState::WIRE_VERSION {
                 return Err(DeserializeError::unknown_version(v));
             }
-            bincode::deserialize(b).map_err(|e| DeserializeError::Malformed(e.to_string()))
+            bincode::serde::decode_from_slice(b, bincode::config::legacy())
+                .map(|(value, _)| value)
+                .map_err(|e| DeserializeError::Malformed(e.to_string()))
         },
         None,
     )
@@ -102,10 +105,7 @@ async fn setup_cluster(
 }
 
 /// Helper: mutate via the actor
-async fn mutate_actor(
-    actor: &TestActorRef<StateActor<TestState, TestState>>,
-    value: u64,
-) {
+async fn mutate_actor(actor: &TestActorRef<StateActor<TestState, TestState>>, value: u64) {
     let _ = actor.tell(Mutate {
         mutate_fn: Box::new(move |s: &mut TestState| s.counter = value),
         project_fn: Box::new(|s: &TestState| s.clone()),

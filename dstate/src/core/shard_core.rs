@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::core::view_map::ViewMap;
 use crate::traits::clock::Clock;
 use crate::types::envelope::{StateObject, StateViewObject};
-use crate::types::node::{NodeId, Generation};
+use crate::types::node::{Generation, NodeId};
 
 /// Parameters for an inbound snapshot from a peer.
 #[allow(dead_code)]
@@ -95,7 +95,10 @@ pub(crate) enum DeltaAcceptResult {
     Discarded,
     /// There is a gap — the delta's generation doesn't follow the local view.
     /// Caller should request a full snapshot.
-    GapDetected { local: Generation, incoming: Generation },
+    GapDetected {
+        local: Generation,
+        incoming: Generation,
+    },
     /// The peer has no entry in the view map. Caller should request snapshot.
     UnknownPeer,
 }
@@ -212,11 +215,6 @@ where
         &self.state
     }
 
-    /// Mutable access to the owned state (for persistence restore).
-    pub fn state_mut(&mut self) -> &mut StateObject<S> {
-        &mut self.state
-    }
-
     /// Read a single node's view. Lock-free O(1).
     pub fn get_view(&self, node_id: &NodeId) -> Option<Arc<StateViewObject<V>>> {
         self.views.get(node_id)
@@ -250,11 +248,7 @@ where
     /// view map entry. For simple states, pass `|s| s.clone()`.
     ///
     /// Returns `MutationOutcome` on success.
-    pub fn apply_mutation<F, P>(
-        &mut self,
-        mutate_fn: F,
-        project_fn: P,
-    ) -> MutationOutcome<V>
+    pub fn apply_mutation<F, P>(&mut self, mutate_fn: F, project_fn: P) -> MutationOutcome<V>
     where
         F: FnOnce(&mut S),
         P: FnOnce(&S) -> V,
@@ -318,11 +312,8 @@ where
     /// the new view. The caller should persist `prepared.state()` and then
     /// call [`commit_mutation`] on success, or simply drop the prepared
     /// value on failure (state remains unchanged).
-    pub fn prepare_mutation<F, P>(
-        &self,
-        mutate_fn: F,
-        project_fn: P,
-    ) -> PreparedMutation<S, V>
+    #[cfg(test)]
+    pub fn prepare_mutation<F, P>(&self, mutate_fn: F, project_fn: P) -> PreparedMutation<S, V>
     where
         F: FnOnce(&mut S),
         P: FnOnce(&S) -> V,
@@ -335,7 +326,11 @@ where
 
         let view = project_fn(&new_state.value);
 
-        PreparedMutation { base_generation, new_state, view }
+        PreparedMutation {
+            base_generation,
+            new_state,
+            view,
+        }
     }
 
     /// Phase 2: Commit a previously prepared mutation.
@@ -348,10 +343,8 @@ where
     /// Panics if the prepared mutation was derived from a different base
     /// state than the current one (i.e., another mutation was committed
     /// in between). This enforces one-at-a-time commit ordering.
-    pub fn commit_mutation(
-        &mut self,
-        prepared: PreparedMutation<S, V>,
-    ) -> MutationOutcome<V> {
+    #[cfg(test)]
+    pub fn commit_mutation(&mut self, prepared: PreparedMutation<S, V>) -> MutationOutcome<V> {
         assert_eq!(
             prepared.base_generation, self.state.generation,
             "commit_mutation: prepared mutation was derived from generation {:?}, \
@@ -370,6 +363,7 @@ where
 
     /// Phase 1 (delta-aware): Prepare a delta mutation without modifying
     /// state or view map.
+    #[cfg(test)]
     pub fn prepare_mutation_with_delta<F, PV, PD, DC, VD>(
         &self,
         mutate_fn: F,
@@ -405,6 +399,7 @@ where
     ///
     /// Panics if the prepared mutation was derived from a different base
     /// state than the current one.
+    #[cfg(test)]
     pub fn commit_delta_mutation<VD: Clone + Debug>(
         &mut self,
         prepared: PreparedDeltaMutation<S, V, VD>,
@@ -545,8 +540,10 @@ where
 
     /// Return peers whose views are stale (not synced within `max_staleness`
     /// or have a `pending_remote_generation`).
+    #[cfg(test)]
     pub fn stale_peers(&self, max_staleness: Duration) -> Vec<NodeId> {
-        self.views.stale_peers(&self.node_id, max_staleness, self.clock.as_ref())
+        self.views
+            .stale_peers(&self.node_id, max_staleness, self.clock.as_ref())
     }
 
     /// Mark a peer's view as stale based on a change-feed notification.
@@ -678,11 +675,7 @@ where
 #[allow(dead_code)] // Used by tests and future actor shell
 /// Helper to create a fresh `StateObject` for a state with a given
 /// incarnation. Used at node startup.
-pub(crate) fn new_state_object<S>(
-    value: S,
-    incarnation: u64,
-    clock: &dyn Clock,
-) -> StateObject<S> {
+pub(crate) fn new_state_object<S>(value: S, incarnation: u64, clock: &dyn Clock) -> StateObject<S> {
     let now = clock.unix_ms();
     StateObject {
         generation: Generation::new(incarnation, 0),
@@ -698,8 +691,8 @@ mod tests {
     use super::*;
     use crate::test_support::test_clock::TestClock;
     use crate::test_support::test_state::{
-        TestDeltaChange, TestDeltaState, TestDeltaStateInner, TestDeltaView,
-        TestDeltaViewDelta, TestState,
+        TestDeltaChange, TestDeltaState, TestDeltaStateInner, TestDeltaView, TestDeltaViewDelta,
+        TestState,
     };
     use crate::traits::state::DeltaDistributedState;
     use crate::types::node::Generation;
@@ -728,9 +721,7 @@ mod tests {
         ShardCore::new(NodeId("1".to_string()), state, view, clock)
     }
 
-    fn make_delta_shard(
-        clock: Arc<dyn Clock>,
-    ) -> ShardCore<TestDeltaStateInner, TestDeltaView> {
+    fn make_delta_shard(clock: Arc<dyn Clock>) -> ShardCore<TestDeltaStateInner, TestDeltaView> {
         let state = StateObject {
             generation: Generation::new(1, 0),
             storage_version: 1,
@@ -791,18 +782,27 @@ mod tests {
         let clock = Arc::new(TestClock::with_base_unix_ms(1_000_000));
         let shard = make_shard(clock.clone());
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         // Peer is stale immediately after join (placeholder has pending_remote_generation).
-        assert_eq!(shard.stale_peers(Duration::from_secs(10)), vec![NodeId("2".to_string())]);
+        assert_eq!(
+            shard.stale_peers(Duration::from_secs(10)),
+            vec![NodeId("2".to_string())]
+        );
 
         // Accept a snapshot to clear the stale marker.
         shard.accept_inbound_snapshot(InboundSnapshot {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 1),
             wire_version: 1,
-            view: TestState { counter: 1, label: "synced".into() },
+            view: TestState {
+                counter: 1,
+                label: "synced".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -821,7 +821,10 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock.clone());
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         shard.mark_stale(NodeId("2".to_string()), 1, 5);
@@ -846,10 +849,7 @@ mod tests {
         let mut shard = make_shard(clock);
         assert_eq!(shard.state().age(), 0);
 
-        let outcome = shard.apply_mutation(
-            |s| s.counter += 1,
-            |s| s.clone(),
-        );
+        let outcome = shard.apply_mutation(|s| s.counter += 1, |s| s.clone());
 
         assert_eq!(outcome.generation.age, 1);
         assert_eq!(shard.state().age(), 1);
@@ -929,7 +929,10 @@ mod tests {
         let mut shard = make_shard(clock);
 
         let outcome = shard.apply_mutation(
-            |s| { s.counter = 42; s.label = "updated".into(); },
+            |s| {
+                s.counter = 42;
+                s.label = "updated".into();
+            },
             |s| s.clone(),
         );
 
@@ -962,7 +965,10 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         let snap = shard.snapshot();
@@ -978,7 +984,10 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
         assert_eq!(shard.snapshot().len(), 2);
 
@@ -994,14 +1003,20 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         shard.mark_stale(NodeId("2".to_string()), 1, 10);
 
         let snap = shard.snapshot();
         let entry = snap.get(&NodeId("2".to_string())).unwrap();
-        assert_eq!(entry.pending_remote_generation, Some(Generation::new(1, 10)));
+        assert_eq!(
+            entry.pending_remote_generation,
+            Some(Generation::new(1, 10))
+        );
     }
 
     // ── SHARD-08: MarkStale with stale incarnation is no-op ─────
@@ -1015,7 +1030,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(5, 10),
             wire_version: 1,
-            view: TestState { counter: 10, label: "peer".into() },
+            view: TestState {
+                counter: 10,
+                label: "peer".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -1034,7 +1052,10 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view.clone());
         shard.on_node_joined(NodeId("3".to_string()), default_view);
 
@@ -1087,10 +1108,7 @@ mod tests {
         let mut shard = make_shard(clock);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            shard.apply_mutation(
-                |_s| panic!("intentional test panic"),
-                |s| s.clone(),
-            );
+            shard.apply_mutation(|_s| panic!("intentional test panic"), |s| s.clone());
         }));
 
         assert!(result.is_err());
@@ -1103,10 +1121,7 @@ mod tests {
         let clock = test_clock();
         let mut shard = make_shard(clock);
 
-        let outcome = shard.apply_mutation(
-            |s| s.counter = 77,
-            |s| s.clone(),
-        );
+        let outcome = shard.apply_mutation(|s| s.counter = 77, |s| s.clone());
 
         assert_eq!(outcome.view.counter, 77);
         assert_eq!(outcome.generation.age, 1);
@@ -1120,14 +1135,20 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         let result = shard.accept_inbound_snapshot(InboundSnapshot {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestState { counter: 50, label: "from-peer".into() },
+            view: TestState {
+                counter: 50,
+                label: "from-peer".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_005_000,
         });
@@ -1150,7 +1171,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 10),
             wire_version: 1,
-            view: TestState { counter: 10, label: "new".into() },
+            view: TestState {
+                counter: 10,
+                label: "new".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -1159,7 +1183,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestState { counter: 5, label: "old".into() },
+            view: TestState {
+                counter: 5,
+                label: "old".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -1316,10 +1343,7 @@ mod tests {
         let clock = test_clock();
         let mut shard = make_delta_shard(clock);
 
-        let outcome = shard.apply_mutation(
-            |s| s.counter = 7,
-            TestDeltaState::project_view,
-        );
+        let outcome = shard.apply_mutation(|s| s.counter = 7, TestDeltaState::project_view);
 
         assert_eq!(outcome.generation.age, 1);
         assert_eq!(outcome.view.counter, 7);
@@ -1336,19 +1360,25 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestDeltaView { counter: 10, label: "peer".into() },
+            view: TestDeltaView {
+                counter: 10,
+                label: "peer".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
 
         // Delta advances from age 5 to age 6: generation = (1, 6).
-        let result = shard.accept_inbound_delta(
-            NodeId("2".to_string()), Generation::new(1, 6), 1,
-            |view| TestDeltaState::apply_delta(
-                view,
-                &TestDeltaViewDelta { counter_delta: 3, new_label: None },
-            ),
-        );
+        let result =
+            shard.accept_inbound_delta(NodeId("2".to_string()), Generation::new(1, 6), 1, |view| {
+                TestDeltaState::apply_delta(
+                    view,
+                    &TestDeltaViewDelta {
+                        counter_delta: 3,
+                        new_label: None,
+                    },
+                )
+            });
 
         assert_eq!(result, DeltaAcceptResult::Applied);
         let snap = shard.snapshot();
@@ -1365,21 +1395,29 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestDeltaView { counter: 10, label: "peer".into() },
+            view: TestDeltaView {
+                counter: 10,
+                label: "peer".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
 
         // Peer is at age 5 but delta claims generation (1, 8) — gap (skipped ages).
         let result = shard.accept_inbound_delta(
-            NodeId("2".to_string()), Generation::new(1, 8), 1,
+            NodeId("2".to_string()),
+            Generation::new(1, 8),
+            1,
             |_| unreachable!(),
         );
 
-        assert_eq!(result, DeltaAcceptResult::GapDetected {
-            local: Generation::new(1, 5),
-            incoming: Generation::new(1, 8),
-        });
+        assert_eq!(
+            result,
+            DeltaAcceptResult::GapDetected {
+                local: Generation::new(1, 5),
+                incoming: Generation::new(1, 8),
+            }
+        );
     }
 
     #[test]
@@ -1391,14 +1429,19 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(2, 10),
             wire_version: 1,
-            view: TestDeltaView { counter: 10, label: "peer".into() },
+            view: TestDeltaView {
+                counter: 10,
+                label: "peer".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
 
         // Delta from old incarnation 1 but peer is at incarnation 2.
         let result = shard.accept_inbound_delta(
-            NodeId("2".to_string()), Generation::new(1, 10), 1,
+            NodeId("2".to_string()),
+            Generation::new(1, 10),
+            1,
             |_| unreachable!(),
         );
 
@@ -1411,7 +1454,9 @@ mod tests {
         let shard: ShardCore<TestDeltaStateInner, TestDeltaView> = make_delta_shard(clock);
 
         let result = shard.accept_inbound_delta(
-            NodeId("99".to_string()), Generation::new(1, 1), 1,
+            NodeId("99".to_string()),
+            Generation::new(1, 1),
+            1,
             |_| unreachable!(),
         );
 
@@ -1429,7 +1474,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestState { counter: 5, label: "peer".into() },
+            view: TestState {
+                counter: 5,
+                label: "peer".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -1447,7 +1495,10 @@ mod tests {
     fn node_joined_idempotent() {
         let clock = test_clock();
         let shard = make_shard(clock);
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
 
         shard.on_node_joined(NodeId("2".to_string()), default_view.clone());
         shard.on_node_joined(NodeId("2".to_string()), default_view);
@@ -1476,7 +1527,10 @@ mod tests {
             source: NodeId("5".to_string()),
             generation: Generation::new(1, 1),
             wire_version: 1,
-            view: TestState { counter: 1, label: "new".into() },
+            view: TestState {
+                counter: 1,
+                label: "new".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -1493,23 +1547,34 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
         shard.mark_stale(NodeId("2".to_string()), 1, 10);
 
-        assert!(shard.snapshot()[&NodeId("2".to_string())].pending_remote_generation.is_some());
+        assert!(shard.snapshot()[&NodeId("2".to_string())]
+            .pending_remote_generation
+            .is_some());
 
         shard.accept_inbound_snapshot(InboundSnapshot {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 10),
             wire_version: 1,
-            view: TestState { counter: 10, label: "fresh".into() },
+            view: TestState {
+                counter: 10,
+                label: "fresh".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
 
         let snap = shard.snapshot();
-        assert_eq!(snap[&NodeId("2".to_string())].pending_remote_generation, None);
+        assert_eq!(
+            snap[&NodeId("2".to_string())].pending_remote_generation,
+            None
+        );
     }
 
     // ── Partial catch-up preserves pending_remote_generation ────
@@ -1519,7 +1584,10 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
         // Change feed says peer is at generation (1, 10).
         shard.mark_stale(NodeId("2".to_string()), 1, 10);
@@ -1529,14 +1597,20 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 6),
             wire_version: 1,
-            view: TestState { counter: 6, label: "partial".into() },
+            view: TestState {
+                counter: 6,
+                label: "partial".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
 
         let snap = shard.snapshot();
         // pending_remote_generation should be preserved — we're not caught up yet.
-        assert_eq!(snap[&NodeId("2".to_string())].pending_remote_generation, Some(Generation::new(1, 10)));
+        assert_eq!(
+            snap[&NodeId("2".to_string())].pending_remote_generation,
+            Some(Generation::new(1, 10))
+        );
         assert_eq!(snap[&NodeId("2".to_string())].value.counter, 6);
     }
 
@@ -1547,7 +1621,10 @@ mod tests {
         let clock = test_clock();
         let shard = make_delta_shard(clock.clone());
 
-        let default_view = TestDeltaView { counter: 0, label: String::new() };
+        let default_view = TestDeltaView {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         // Accept snapshot to establish baseline at (1, 5).
@@ -1555,7 +1632,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestDeltaView { counter: 5, label: "base".into() },
+            view: TestDeltaView {
+                counter: 5,
+                label: "base".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -1564,14 +1644,20 @@ mod tests {
         shard.mark_stale(NodeId("2".to_string()), 1, 10);
 
         // Apply delta advancing to (1, 6) — still behind (1, 10).
-        let result = shard.accept_inbound_delta(
-            NodeId("2".to_string()), Generation::new(1, 6), 1,
-            |v| TestDeltaView { counter: v.counter + 1, label: v.label.clone() },
-        );
+        let result =
+            shard.accept_inbound_delta(NodeId("2".to_string()), Generation::new(1, 6), 1, |v| {
+                TestDeltaView {
+                    counter: v.counter + 1,
+                    label: v.label.clone(),
+                }
+            });
         assert_eq!(result, DeltaAcceptResult::Applied);
 
         let snap = shard.snapshot();
-        assert_eq!(snap[&NodeId("2".to_string())].pending_remote_generation, Some(Generation::new(1, 10)));
+        assert_eq!(
+            snap[&NodeId("2".to_string())].pending_remote_generation,
+            Some(Generation::new(1, 10))
+        );
     }
 
     // ── on_node_joined marks placeholder as stale ──────────────
@@ -1581,7 +1667,10 @@ mod tests {
         let clock = test_clock();
         let shard = make_shard(clock);
 
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         let snap = shard.snapshot();
@@ -1597,7 +1686,10 @@ mod tests {
     fn test_new_state_object() {
         let clock = TestClock::with_base_unix_ms(5_000_000);
         let state = new_state_object(
-            TestState { counter: 0, label: "fresh".into() },
+            TestState {
+                counter: 0,
+                label: "fresh".into(),
+            },
             42,
             &clock,
         );
@@ -1619,14 +1711,20 @@ mod tests {
         let shard = make_shard(clock);
 
         // Simulate a peer joining.
-        let default_view = TestState { counter: 0, label: String::new() };
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         // Build a SyncMessage::FullSnapshot as if received over the wire,
         // then extract its fields into an InboundSnapshot.
         let source_node = NodeId("2".to_string());
         let gen = Generation::new(1, 7);
-        let view = TestState { counter: 42, label: "wire-snap".into() };
+        let view = TestState {
+            counter: 42,
+            label: "wire-snap".into(),
+        };
         let wire_version = TestState::WIRE_VERSION;
 
         let result = shard.accept_inbound_snapshot(InboundSnapshot {
@@ -1654,29 +1752,39 @@ mod tests {
         let shard: ShardCore<TestDeltaStateInner, TestDeltaView> = make_delta_shard(clock);
 
         // Join peer and accept baseline snapshot at (1, 5).
-        let default_view = TestDeltaView { counter: 0, label: String::new() };
+        let default_view = TestDeltaView {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(NodeId("2".to_string()), default_view);
 
         shard.accept_inbound_snapshot(InboundSnapshot {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestDeltaView { counter: 100, label: "baseline".into() },
+            view: TestDeltaView {
+                counter: 100,
+                label: "baseline".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
 
         // Simulate receiving a DeltaUpdate: generation advances to (1, 6).
-        let result = shard.accept_inbound_delta(
-            NodeId("2".to_string()),
-            Generation::new(1, 6),
-            1,
-            |v| TestDeltaView { counter: v.counter + 5, label: v.label.clone() },
-        );
+        let result =
+            shard.accept_inbound_delta(NodeId("2".to_string()), Generation::new(1, 6), 1, |v| {
+                TestDeltaView {
+                    counter: v.counter + 5,
+                    label: v.label.clone(),
+                }
+            });
 
         assert_eq!(result, DeltaAcceptResult::Applied);
         let snap = shard.snapshot();
-        assert_eq!(snap[&NodeId("2".to_string())].generation, Generation::new(1, 6));
+        assert_eq!(
+            snap[&NodeId("2".to_string())].generation,
+            Generation::new(1, 6)
+        );
         assert_eq!(snap[&NodeId("2".to_string())].value.counter, 105);
     }
 
@@ -1692,7 +1800,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestState { counter: 5, label: "peer".into() },
+            view: TestState {
+                counter: 5,
+                label: "peer".into(),
+            },
             created_time: 1_000_000,
             modified_time: 1_000_000,
         });
@@ -1703,7 +1814,10 @@ mod tests {
 
         let snap = shard.snapshot();
         let entry = snap.get(&NodeId("2".to_string())).unwrap();
-        assert_eq!(entry.pending_remote_generation, Some(Generation::new(1, 10)));
+        assert_eq!(
+            entry.pending_remote_generation,
+            Some(Generation::new(1, 10))
+        );
         // The view value should still be the old snapshot (not yet updated).
         assert_eq!(entry.value.counter, 5);
     }
@@ -1716,9 +1830,27 @@ mod tests {
         let mut shard = make_shard(clock);
 
         // Mutate a few times to build up state.
-        shard.apply_mutation(|s| { s.counter = 10; s.label = "first".into(); }, |s| s.clone());
-        shard.apply_mutation(|s| { s.counter = 20; s.label = "second".into(); }, |s| s.clone());
-        shard.apply_mutation(|s| { s.counter = 30; s.label = "third".into(); }, |s| s.clone());
+        shard.apply_mutation(
+            |s| {
+                s.counter = 10;
+                s.label = "first".into();
+            },
+            |s| s.clone(),
+        );
+        shard.apply_mutation(
+            |s| {
+                s.counter = 20;
+                s.label = "second".into();
+            },
+            |s| s.clone(),
+        );
+        shard.apply_mutation(
+            |s| {
+                s.counter = 30;
+                s.label = "third".into();
+            },
+            |s| s.clone(),
+        );
 
         // Verify that state() and snapshot() provide the data a peer would
         // need when it sends RequestSnapshot. The actual wire sending is the
@@ -1747,7 +1879,10 @@ mod tests {
             source: NodeId("99".to_string()),
             generation: Generation::new(3, 15),
             wire_version: 1,
-            view: TestState { counter: 999, label: "unknown-peer".into() },
+            view: TestState {
+                counter: 999,
+                label: "unknown-peer".into(),
+            },
             created_time: 2_000_000,
             modified_time: 2_015_000,
         });
@@ -1767,14 +1902,25 @@ mod tests {
     // ══════════════════════════════════════════════════════════════
 
     /// Helper: add a peer with a fresh snapshot at a given generation.
-    fn add_fresh_peer(shard: &ShardCore<TestState, TestState>, node_id: NodeId, counter: u64, clock: &dyn Clock) {
-        let default_view = TestState { counter: 0, label: String::new() };
+    fn add_fresh_peer(
+        shard: &ShardCore<TestState, TestState>,
+        node_id: NodeId,
+        counter: u64,
+        clock: &dyn Clock,
+    ) {
+        let default_view = TestState {
+            counter: 0,
+            label: String::new(),
+        };
         shard.on_node_joined(node_id.clone(), default_view);
         shard.accept_inbound_snapshot(InboundSnapshot {
             source: node_id.clone(),
             generation: Generation::new(1, 1),
             wire_version: 1,
-            view: TestState { counter, label: format!("peer-{}", node_id.0) },
+            view: TestState {
+                counter,
+                label: format!("peer-{}", node_id.0),
+            },
             created_time: clock.unix_ms(),
             modified_time: clock.unix_ms(),
         });
@@ -1791,9 +1937,7 @@ mod tests {
         add_fresh_peer(&shard, NodeId("3".to_string()), 20, clock.as_ref());
         add_fresh_peer(&shard, NodeId("4".to_string()), 30, clock.as_ref());
 
-        let result = shard.query_local(Duration::from_secs(5), |snap| {
-            snap.len()
-        });
+        let result = shard.query_local(Duration::from_secs(5), |snap| snap.len());
 
         match result {
             QueryResult::Fresh(count) => assert_eq!(count, 4), // self + 3 peers
@@ -1814,12 +1958,13 @@ mod tests {
         // Advance time beyond max_staleness.
         tc.advance(Duration::from_secs(10));
 
-        let result = shard.query_local(Duration::from_secs(5), |snap| {
-            snap.len()
-        });
+        let result = shard.query_local(Duration::from_secs(5), |snap| snap.len());
 
         match result {
-            QueryResult::StalePeersDetected { stale_peers, result } => {
+            QueryResult::StalePeersDetected {
+                stale_peers,
+                result,
+            } => {
                 assert_eq!(stale_peers, vec![NodeId("2".to_string())]);
                 assert_eq!(result, 2);
             }
@@ -1841,9 +1986,7 @@ mod tests {
         // Advance time but stay within max_staleness.
         tc.advance(Duration::from_secs(2));
 
-        let result = shard.query_local(Duration::from_secs(5), |snap| {
-            snap.len()
-        });
+        let result = shard.query_local(Duration::from_secs(5), |snap| snap.len());
 
         match result {
             QueryResult::Fresh(count) => assert_eq!(count, 3),
@@ -1861,9 +2004,7 @@ mod tests {
         add_fresh_peer(&shard, NodeId("2".to_string()), 42, clock.as_ref());
 
         let result = shard.query_local(Duration::from_secs(5), |snap| {
-            snap.values()
-                .map(|v| v.value.counter)
-                .sum::<u64>()
+            snap.values().map(|v| v.value.counter).sum::<u64>()
         });
 
         match result {
@@ -1890,7 +2031,10 @@ mod tests {
             source: NodeId("3".to_string()),
             generation: Generation::new(1, 2),
             wire_version: 1,
-            view: TestState { counter: 25, label: "refreshed".into() },
+            view: TestState {
+                counter: 25,
+                label: "refreshed".into(),
+            },
             created_time: clock.unix_ms(),
             modified_time: clock.unix_ms(),
         });
@@ -1900,7 +2044,10 @@ mod tests {
         });
 
         match result {
-            QueryResult::StalePeersDetected { stale_peers, result } => {
+            QueryResult::StalePeersDetected {
+                stale_peers,
+                result,
+            } => {
                 assert_eq!(stale_peers, vec![NodeId("2".to_string())]);
                 assert_eq!(result, 25);
             }
@@ -1925,11 +2072,16 @@ mod tests {
         });
 
         match result {
-            QueryResult::StalePeersDetected { stale_peers, result } => {
+            QueryResult::StalePeersDetected {
+                stale_peers,
+                result,
+            } => {
                 assert_eq!(stale_peers, vec![NodeId("2".to_string())]);
                 assert_eq!(result, 10); // old value still visible
             }
-            QueryResult::Fresh(_) => panic!("expected stale detection via pending_remote_generation"),
+            QueryResult::Fresh(_) => {
+                panic!("expected stale detection via pending_remote_generation")
+            }
         }
     }
 
@@ -1948,14 +2100,22 @@ mod tests {
         // All peers go stale.
         tc.advance(Duration::from_secs(10));
 
-        let result = shard.query_local(Duration::from_secs(5), |snap| {
-            snap.len()
-        });
+        let result = shard.query_local(Duration::from_secs(5), |snap| snap.len());
 
         match result {
-            QueryResult::StalePeersDetected { mut stale_peers, result } => {
+            QueryResult::StalePeersDetected {
+                mut stale_peers,
+                result,
+            } => {
                 stale_peers.sort();
-                assert_eq!(stale_peers, vec![NodeId("2".to_string()), NodeId("3".to_string()), NodeId("4".to_string())]);
+                assert_eq!(
+                    stale_peers,
+                    vec![
+                        NodeId("2".to_string()),
+                        NodeId("3".to_string()),
+                        NodeId("4".to_string())
+                    ]
+                );
                 assert_eq!(result, 4);
             }
             QueryResult::Fresh(_) => panic!("expected 3 stale peers"),
@@ -1993,9 +2153,7 @@ mod tests {
         tc.advance(Duration::from_secs(100));
 
         // With no peers, query should always be fresh (local node excluded).
-        let result = shard.query_local(Duration::from_secs(5), |snap| {
-            snap.len()
-        });
+        let result = shard.query_local(Duration::from_secs(5), |snap| snap.len());
 
         match result {
             QueryResult::Fresh(count) => assert_eq!(count, 1),
@@ -2012,14 +2170,14 @@ mod tests {
     // is actor-shell behavior, but we test the decision logic here.
 
     use crate::core::sync_logic::{SyncAction, SyncLogic};
-    use crate::types::config::SyncStrategy;
     use crate::traits::state::SyncUrgency;
+    use crate::types::config::SyncStrategy;
 
     // ── SYNC-14: Immediate bypasses timer ───────────────────────
 
     #[test]
     fn sync_14_immediate_bypasses_timer() {
-        let logic = SyncLogic::new("counters".into(), SyncStrategy::active_push(), true);
+        let logic = SyncLogic::new(SyncStrategy::active_push(), true);
         let action = logic.resolve_action(SyncUrgency::Immediate);
         assert_eq!(action, SyncAction::BroadcastDelta);
     }
@@ -2028,7 +2186,7 @@ mod tests {
 
     #[test]
     fn sync_15_delayed_overrides_interval() {
-        let logic = SyncLogic::new("counters".into(), SyncStrategy::active_push(), true);
+        let logic = SyncLogic::new(SyncStrategy::active_push(), true);
         let delay = Duration::from_secs(1);
         let action = logic.resolve_action(SyncUrgency::Delayed(delay));
         assert_eq!(action, SyncAction::ScheduleDelayed(Duration::from_secs(1)));
@@ -2038,7 +2196,7 @@ mod tests {
 
     #[test]
     fn sync_16_suppress_skips_broadcast() {
-        let logic = SyncLogic::new("counters".into(), SyncStrategy::active_push(), true);
+        let logic = SyncLogic::new(SyncStrategy::active_push(), true);
         let action = logic.resolve_action(SyncUrgency::Suppress);
         assert_eq!(action, SyncAction::Suppress);
     }
@@ -2049,7 +2207,7 @@ mod tests {
     fn sync_17_suppressed_deltas_accumulate() {
         use crate::core::delta_accumulator::DeltaAccumulator;
 
-        let logic = SyncLogic::new("counters".into(), SyncStrategy::active_push(), true);
+        let logic = SyncLogic::new(SyncStrategy::active_push(), true);
         let mut acc = DeltaAccumulator::new();
 
         // 3 suppressed mutations → accumulate.
@@ -2076,14 +2234,14 @@ mod tests {
     #[test]
     fn sync_18_default_uses_configured_strategy() {
         // ActivePush → BroadcastDelta for Default urgency.
-        let push_logic = SyncLogic::new("counters".into(), SyncStrategy::active_push(), true);
+        let push_logic = SyncLogic::new(SyncStrategy::active_push(), true);
         assert_eq!(
             push_logic.resolve_action(SyncUrgency::Default),
             SyncAction::BroadcastDelta,
         );
 
         // ActiveFeedLazyPull → NotifyChangeFeed for Default urgency.
-        let feed_logic = SyncLogic::new("sessions".into(), SyncStrategy::feed_lazy_pull(), true);
+        let feed_logic = SyncLogic::new(SyncStrategy::feed_lazy_pull(), true);
         assert_eq!(
             feed_logic.resolve_action(SyncUrgency::Default),
             SyncAction::NotifyChangeFeed,
@@ -2117,7 +2275,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestState { counter: 99, label: "refreshed".into() },
+            view: TestState {
+                counter: 99,
+                label: "refreshed".into(),
+            },
             created_time: clock.unix_ms(),
             modified_time: clock.unix_ms(),
         });
@@ -2157,7 +2318,10 @@ mod tests {
             source: NodeId("2".to_string()),
             generation: Generation::new(1, 5),
             wire_version: 1,
-            view: TestState { counter: 99, label: "refreshed".into() },
+            view: TestState {
+                counter: 99,
+                label: "refreshed".into(),
+            },
             created_time: clock.unix_ms(),
             modified_time: clock.unix_ms(),
         });
@@ -2198,10 +2362,7 @@ mod tests {
 
         // Mutate to age 5
         for i in 1..=5 {
-            let prepared = shard.prepare_mutation(
-                move |s| s.counter = i,
-                |s| s.clone(),
-            );
+            let prepared = shard.prepare_mutation(move |s| s.counter = i, |s| s.clone());
             // Simulate successful persist
             shard.commit_mutation(prepared);
         }
@@ -2331,9 +2492,18 @@ mod tests {
 
         // Phase 1: prepare (state not yet changed)
         let prepared = shard.prepare_mutation(|s| s.counter = 42, |s| s.clone());
-        assert_eq!(shard.state().generation.age, 0, "state unchanged before commit");
         assert_eq!(
-            shard.get_view(&NodeId("1".to_string())).unwrap().value.counter, 0,
+            shard.state().generation.age,
+            0,
+            "state unchanged before commit"
+        );
+        assert_eq!(
+            shard
+                .get_view(&NodeId("1".to_string()))
+                .unwrap()
+                .value
+                .counter,
+            0,
             "view unchanged before commit"
         );
 
@@ -2343,9 +2513,18 @@ mod tests {
 
         // Phase 2: commit (state + view updated atomically)
         let outcome = shard.commit_mutation(prepared);
-        assert_eq!(shard.state().generation.age, 1, "state updated after commit");
         assert_eq!(
-            shard.get_view(&NodeId("1".to_string())).unwrap().value.counter, 42,
+            shard.state().generation.age,
+            1,
+            "state updated after commit"
+        );
+        assert_eq!(
+            shard
+                .get_view(&NodeId("1".to_string()))
+                .unwrap()
+                .value
+                .counter,
+            42,
             "view updated after commit"
         );
         assert_eq!(outcome.generation.age, 1);
@@ -2369,8 +2548,8 @@ mod tests {
                     accumulator_delta: 0.0,
                 }
             },
-            |s| TestDeltaState::project_view(s),
-            |dc| TestDeltaState::project_delta(dc),
+            TestDeltaState::project_view,
+            TestDeltaState::project_delta,
         );
 
         assert_eq!(shard.state().generation.age, 0, "unchanged before commit");
@@ -2396,8 +2575,8 @@ mod tests {
                     accumulator_delta: 0.0,
                 }
             },
-            |s| TestDeltaState::project_view(s),
-            |dc| TestDeltaState::project_delta(dc),
+            TestDeltaState::project_view,
+            TestDeltaState::project_delta,
         );
         shard.commit_delta_mutation(p1);
         assert_eq!(shard.state().generation.age, 1);
@@ -2412,8 +2591,8 @@ mod tests {
                     accumulator_delta: 0.0,
                 }
             },
-            |s| TestDeltaState::project_view(s),
-            |dc| TestDeltaState::project_delta(dc),
+            TestDeltaState::project_view,
+            TestDeltaState::project_delta,
         );
         drop(p2);
 
@@ -2450,18 +2629,26 @@ mod tests {
         let p1 = shard.prepare_mutation_with_delta(
             |s| {
                 s.counter += 1;
-                TestDeltaChange { counter_delta: 1, new_label: None, accumulator_delta: 0.0 }
+                TestDeltaChange {
+                    counter_delta: 1,
+                    new_label: None,
+                    accumulator_delta: 0.0,
+                }
             },
-            |s| TestDeltaState::project_view(s),
-            |dc| TestDeltaState::project_delta(dc),
+            TestDeltaState::project_view,
+            TestDeltaState::project_delta,
         );
         let p2 = shard.prepare_mutation_with_delta(
             |s| {
                 s.counter += 10;
-                TestDeltaChange { counter_delta: 10, new_label: None, accumulator_delta: 0.0 }
+                TestDeltaChange {
+                    counter_delta: 10,
+                    new_label: None,
+                    accumulator_delta: 0.0,
+                }
             },
-            |s| TestDeltaState::project_view(s),
-            |dc| TestDeltaState::project_delta(dc),
+            TestDeltaState::project_view,
+            TestDeltaState::project_delta,
         );
 
         shard.commit_delta_mutation(p1);

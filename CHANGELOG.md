@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-11-09
+
+### Changed
+
+- Update dependencies to their latest stable compatible releases.
+- Migrate to bincode 2.0.1 with legacy encoding to preserve existing wire and
+  storage bytes. Bincode 3.0.0 is excluded because it intentionally fails compilation.
+- Require Rust 1.89 or newer.
+- Fix workspace formatting and strict Clippy warnings, including test targets.
+- Include a version requirement for the published `dstate-dactor` dependency on `dstate`.
+
 ## [1.1.0] — 2026-04-24
 
 ### Changed

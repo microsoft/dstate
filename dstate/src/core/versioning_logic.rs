@@ -10,16 +10,10 @@ use crate::types::node::VersionMismatchPolicy;
 pub(crate) enum VersionMismatchAction {
     /// Keep the last successfully deserialized view; log a warning.
     /// The view becomes increasingly stale until the local node is upgraded.
-    KeepStale {
-        wire_version: u32,
-        reason: String,
-    },
+    KeepStale { wire_version: u32, reason: String },
     /// Remove the peer's view from the view map until a compatible version
     /// arrives. Queries will not see this peer.
-    DropView {
-        wire_version: u32,
-        reason: String,
-    },
+    DropView { wire_version: u32, reason: String },
 }
 
 /// Result of attempting to deserialize an inbound sync message.
@@ -112,13 +106,9 @@ impl VersioningLogic {
             Ok(value) => InboundVersionResult::Ok(value),
             Err(e) => match e {
                 DeserializeError::UnknownVersion(v) => {
-                    InboundVersionResult::VersionMismatch(
-                        self.on_deserialize_error(v),
-                    )
+                    InboundVersionResult::VersionMismatch(self.on_deserialize_error(v))
                 }
-                DeserializeError::Malformed(msg) => {
-                    InboundVersionResult::MalformedData(msg)
-                }
+                DeserializeError::Malformed(msg) => InboundVersionResult::MalformedData(msg),
             },
         }
     }
@@ -315,11 +305,23 @@ mod tests {
     fn ver_11_on_deserialize_error_actions() {
         let keep = keep_stale_logic();
         let action = keep.on_deserialize_error(5);
-        assert!(matches!(action, VersionMismatchAction::KeepStale { wire_version: 5, .. }));
+        assert!(matches!(
+            action,
+            VersionMismatchAction::KeepStale {
+                wire_version: 5,
+                ..
+            }
+        ));
 
         let drop = drop_and_wait_logic();
         let action = drop.on_deserialize_error(5);
-        assert!(matches!(action, VersionMismatchAction::DropView { wire_version: 5, .. }));
+        assert!(matches!(
+            action,
+            VersionMismatchAction::DropView {
+                wire_version: 5,
+                ..
+            }
+        ));
     }
 
     // ── VER-12: Phase 1 — old nodes read old, new nodes read both
@@ -379,9 +381,13 @@ mod tests {
 
         // V1 message → rejected with KeepStale.
         let r2 = logic.on_inbound(b"data", 1, deserialize_v2_only);
-        assert!(matches!(r2, InboundVersionResult::VersionMismatch(
-            VersionMismatchAction::KeepStale { wire_version: 1, .. }
-        )));
+        assert!(matches!(
+            r2,
+            InboundVersionResult::VersionMismatch(VersionMismatchAction::KeepStale {
+                wire_version: 1,
+                ..
+            })
+        ));
     }
 
     // ── VER-16: Persist and load at same storage_version ────────

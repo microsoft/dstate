@@ -26,7 +26,10 @@ impl fmt::Display for RegistryError {
                 name,
                 expected,
                 actual,
-            } => write!(f, "type mismatch for '{name}': expected {expected}, got {actual}"),
+            } => write!(
+                f,
+                "type mismatch for '{name}': expected {expected}, got {actual}"
+            ),
             Self::DuplicateName(name) => write!(f, "duplicate state name: {name}"),
         }
     }

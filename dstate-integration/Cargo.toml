@@ -9,7 +9,7 @@ publish = false
 [dependencies]
 dstate = { path = "../dstate" }
 dstate-dactor = { path = "../dstate-dactor" }
-bincode = "1"
+bincode = { version = "2.0.1", default-features = false, features = ["std", "serde"] }
 serde = { version = "1", features = ["derive"] }
 dactor = { version = "0.3", features = ["test-support"] }
 dactor-mock = "0.3"

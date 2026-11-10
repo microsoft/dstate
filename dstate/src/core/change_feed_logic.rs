@@ -117,11 +117,13 @@ impl ChangeFeedLogic {
         let notifications = self
             .pending
             .drain()
-            .map(|((state_name, source_node), generation)| ChangeNotification {
-                state_name,
-                source_node,
-                generation,
-            })
+            .map(
+                |((state_name, source_node), generation)| ChangeNotification {
+                    state_name,
+                    source_node,
+                    generation,
+                },
+            )
             .collect();
 
         Some(BatchedChangeFeed {

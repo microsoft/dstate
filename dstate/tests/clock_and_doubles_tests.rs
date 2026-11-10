@@ -2,9 +2,9 @@
 /// TEST-08..TEST-10: Test doubles tests
 use std::time::Duration;
 
-use dstate::{Clock, StateObject, Generation, StatePersistence};
 use dstate::test_support::test_clock::TestClock;
 use dstate::test_support::test_persist::{FailingPersistence, InMemoryPersistence};
+use dstate::{Clock, Generation, StateObject, StatePersistence};
 
 // ---------------------------------------------------------------------------
 // TEST-01..TEST-04: Clock

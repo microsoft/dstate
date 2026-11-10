@@ -29,13 +29,13 @@
 //!     const STORAGE_VERSION: u32 = 1;
 //!
 //!     fn serialize_state(&self) -> Vec<u8> {
-//!         bincode::serialize(self).unwrap()
+//!         bincode::serde::encode_to_vec(self, bincode::config::legacy()).unwrap()
 //!     }
 //!     fn deserialize_state(bytes: &[u8], v: u32) -> Result<Self, DeserializeError> {
 //!         if v != Self::WIRE_VERSION {
 //!             return Err(DeserializeError::unknown_version(v));
 //!         }
-//!         bincode::deserialize(bytes)
+//!         bincode::serde::decode_from_slice(bytes, bincode::config::legacy()).map(|(value, _)| value)
 //!             .map_err(|e| DeserializeError::Malformed(e.to_string()))
 //!     }
 //! }
@@ -68,23 +68,21 @@
 //! with a concrete backend (ractor, kameo, or coerce) via its adapter crates.
 
 // ── Traits (what users implement) ────────────────────────────────
-pub use traits::state::{DeltaDistributedState, DistributedState, SyncUrgency};
-pub use traits::persistence::{PersistError, StatePersistence};
 pub use traits::clock::{Clock, SystemClock};
+pub use traits::persistence::{PersistError, StatePersistence};
+pub use traits::state::{DeltaDistributedState, DistributedState, SyncUrgency};
 
 // ── Runtime abstractions (cluster events, timers, errors) ────────
 pub use traits::runtime::{
-    ActorSendError, ClusterError, ClusterEvent, ClusterEvents, GroupError,
-    SubscriptionId, TimerHandle,
+    ActorSendError, ClusterError, ClusterEvent, ClusterEvents, GroupError, SubscriptionId,
+    TimerHandle,
 };
 
 // ── Types (what users construct / receive) ──────────────────────
-pub use types::envelope::{StateObject, StateViewObject};
 pub use types::config::{ChangeFeedConfig, PushMode, StateConfig, SyncStrategy};
-pub use types::node::{NodeId, Generation, VersionMismatchPolicy};
-pub use types::errors::{
-    DeserializeError, MutationError, QueryError, RegistryError,
-};
+pub use types::envelope::{StateObject, StateViewObject};
+pub use types::errors::{DeserializeError, MutationError, QueryError, RegistryError};
+pub use types::node::{Generation, NodeId, VersionMismatchPolicy};
 pub use types::sync_message::{BatchedChangeFeed, ChangeNotification, SyncMessage};
 
 // ── Registry (state registration and lookup) ────────────────────
@@ -93,16 +91,16 @@ pub use registry::{AnyStateShard, StateRegistry};
 // ── Engine (public API for driving the replication protocol) ─────
 pub mod engine;
 pub use engine::{
-    DistributedStateEngine, EngineAction, EngineHealth, EngineQueryResult, HealthStatus,
-    MutateResult, DeltaMutateResult, SyncMetrics, WireMessage,
+    DeltaMutateResult, DistributedStateEngine, EngineAction, EngineHealth, EngineQueryResult,
+    HealthStatus, MutateResult, SyncMetrics, WireMessage,
 };
 
 // ── Test support (public for adapter crates and downstream tests) ─
 pub mod test_support;
 
 // ── Internal modules (not part of the public API) ───────────────
-mod traits;
-mod types;
-mod registry;
 pub(crate) mod core;
 pub(crate) mod messages;
+mod registry;
+mod traits;
+mod types;

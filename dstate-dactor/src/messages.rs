@@ -76,13 +76,8 @@ impl<V: Clone + Send + Sync + Debug + 'static> Message for QueryViews<V> {
 
 /// Fire-and-forget: notify this actor of a cluster membership change.
 pub enum ClusterChange<V: Clone + Send + Sync + Debug + 'static> {
-    NodeJoined {
-        node_id: NodeId,
-        default_view: V,
-    },
-    NodeLeft {
-        node_id: NodeId,
-    },
+    NodeJoined { node_id: NodeId, default_view: V },
+    NodeLeft { node_id: NodeId },
 }
 
 impl<V: Clone + Send + Sync + Debug + 'static> Message for ClusterChange<V> {

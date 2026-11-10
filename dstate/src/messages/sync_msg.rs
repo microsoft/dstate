@@ -1,4 +1,4 @@
-use crate::types::node::{NodeId, Generation};
+use crate::types::node::{Generation, NodeId};
 
 /// Outbound messages from StateShard to SyncEngine.
 #[derive(Debug)]
@@ -19,8 +19,5 @@ pub(crate) enum SyncEngineMsg {
         data: Vec<u8>,
     },
     /// Request a full snapshot from a specific peer.
-    PullSnapshot {
-        state_name: String,
-        target: NodeId,
-    },
+    PullSnapshot { state_name: String, target: NodeId },
 }

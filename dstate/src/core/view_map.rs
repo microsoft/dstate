@@ -208,10 +208,7 @@ where
                 match f(None) {
                     Some(new_view) => {
                         let mut new_map = (**map).clone();
-                        new_map.insert(
-                            node_id.clone(),
-                            Arc::new(ArcSwap::from_pointee(new_view)),
-                        );
+                        new_map.insert(node_id.clone(), Arc::new(ArcSwap::from_pointee(new_view)));
                         self.inner.store(Arc::new(new_map));
                         true
                     }

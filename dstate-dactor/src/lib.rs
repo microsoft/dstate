@@ -39,5 +39,5 @@ pub mod state_actor;
 
 pub use messages::*;
 pub use state_actor::{
-    ActorRefPeerSender, PeerRegistry, PeerSender, StateActor, StateActorArgs, new_peer_registry,
+    new_peer_registry, ActorRefPeerSender, PeerRegistry, PeerSender, StateActor, StateActorArgs,
 };

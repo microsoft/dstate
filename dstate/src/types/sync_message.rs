@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::node::{NodeId, Generation};
+use crate::types::node::{Generation, NodeId};
 
 /// Wire-level synchronization messages exchanged between nodes.
 #[derive(Debug, Clone, Serialize, Deserialize)]

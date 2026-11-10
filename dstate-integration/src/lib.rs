@@ -20,6 +20,6 @@
 //!
 //! See `docs/integration-test-plan.md` for the full test matrix.
 
+pub mod cluster;
 pub mod interceptor;
 pub mod transport;
-pub mod cluster;
